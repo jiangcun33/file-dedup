@@ -34,6 +34,7 @@ fn base_options(paths: Vec<String>) -> ScanOptions {
         keep_strategy: KeepStrategy::KeepOldest,
         use_cache: false,
         cache_path: String::new(),
+        ..Default::default()
     }
 }
 
@@ -223,4 +224,88 @@ fn batch_action_across_groups() {
     std::fs::write(&b1, b"group b payload data UPDATED").unwrap();
     assert_eq!(std::fs::read(&a2).unwrap(), b"group a payload data UPDATED");
     assert_eq!(std::fs::read(&b2).unwrap(), b"group b payload data UPDATED");
+}
+
+#[test]
+fn fuzzy_filename_matching() {
+    let dir = test_dir("fuzzy");
+    write(&dir, "report.txt", b"content alpha");
+    write(&dir, "report copy.txt", b"content beta different");
+    write(&dir, "report final.txt", b"content gamma totally different");
+    write(&dir, "unrelated.txt", b"something else entirely");
+
+    let cancel = AtomicBool::new(false);
+    let mut opts = base_options(vec![dir.to_string_lossy().into_owned()]);
+    opts.fuzzy_filename = true;
+    opts.fuzzy_threshold = 60;
+    opts.fuzzy_same_dir_only = true;
+
+    let result = dedup_core::run_scan(&opts, None, Some(&cancel)).unwrap();
+    let fuzzy: Vec<_> = result.groups.iter().filter(|g| g.kind == dedup_core::GroupKind::FuzzyName).collect();
+    assert_eq!(fuzzy.len(), 1, "应找到 1 组文件名模糊匹配，实际 {}", fuzzy.len());
+    assert_eq!(fuzzy[0].files.len(), 3, "report* 三兄弟应同组");
+    // unrelated 不应混入
+    for f in &fuzzy[0].files {
+        assert!(!f.path.ends_with("unrelated.txt"), "无关文件不应入组");
+    }
+}
+
+#[test]
+fn fuzzy_similarity_threshold_respects() {
+    assert!((dedup_core::fuzzy::filename_similarity("a b c d", "c d e", false) - 4.0 / 7.0).abs() < 0.02);
+    assert_eq!(dedup_core::fuzzy::filename_similarity("report.txt", "report.txt", true), 1.0);
+}
+
+fn gradient_png(w: u32, h: u32, seed: u32) -> PathBuf {
+    use image::{ImageBuffer, Rgb};
+    let mut img = ImageBuffer::new(w, h);
+    for y in 0..h {
+        for x in 0..w {
+            let v = ((x * 255 / w) + seed) as u8;
+            img.put_pixel(x, y, Rgb([v, v, 255 - v]));
+        }
+    }
+    let path = std::env::temp_dir().join(format!("dedup-img-test-{}-{}-{}.png", std::process::id(), seed, w));
+    img.save(&path).unwrap();
+    path
+}
+
+fn solid_png(w: u32, h: u32, gray: u8) -> PathBuf {
+    use image::{ImageBuffer, Luma};
+    let img = ImageBuffer::from_pixel(w, h, Luma([gray]));
+    let path = std::env::temp_dir().join(format!("dedup-img-solid-{}-{}.png", std::process::id(), gray));
+    img.save(&path).unwrap();
+    path
+}
+
+#[test]
+fn similar_images_found() {
+    let dir = test_dir("images");
+    // 同内容不同尺寸的两张图（相似），一张纯色完全不同（不相似）
+    let p1 = gradient_png(100, 100, 1);
+    let p2 = gradient_png(200, 200, 1);
+    let p3 = solid_png(100, 100, 128);
+    // 拷贝进扫描目录
+    let f1 = write(&dir, "a.png", &std::fs::read(&p1).unwrap());
+    let f2 = write(&dir, "sub/b.png", &std::fs::read(&p2).unwrap());
+    let f3 = write(&dir, "c.png", &std::fs::read(&p3).unwrap());
+    let _ = std::fs::remove_file(&p1);
+    let _ = std::fs::remove_file(&p2);
+    let _ = std::fs::remove_file(&p3);
+
+    let cancel = AtomicBool::new(false);
+    let mut opts = base_options(vec![dir.to_string_lossy().into_owned()]);
+    opts.similar_images = true;
+    opts.image_threshold = 10;
+
+    let result = dedup_core::run_scan(&opts, None, Some(&cancel)).unwrap();
+    let similar: Vec<_> = result.groups.iter().filter(|g| g.kind == dedup_core::GroupKind::SimilarImage).collect();
+    assert_eq!(similar.len(), 1, "应找到 1 组相似图片，实际 {}", similar.len());
+    let paths: Vec<&str> = similar[0].files.iter().map(|f| f.path.as_str()).collect();
+    assert!(paths.iter().any(|p| p.ends_with("a.png")), "a.png 应在组内");
+    assert!(paths.iter().any(|p| p.ends_with("b.png")), "b.png 应在组内");
+    assert!(!paths.iter().any(|p| p.ends_with("c.png")), "纯色 c.png 不应入组");
+    let _ = f1;
+    let _ = f2;
+    let _ = f3;
 }

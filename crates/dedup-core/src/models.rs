@@ -29,6 +29,43 @@ pub struct ScanOptions {
     pub use_cache: bool,
     /// 缓存数据库文件路径
     pub cache_path: String,
+    /// 是否启用文件名模糊匹配
+    #[serde(default)]
+    pub fuzzy_filename: bool,
+    /// 文件名模糊匹配相似度阈值（0-100，dupeGuru 式词相似度）
+    #[serde(default = "default_fuzzy_threshold")]
+    pub fuzzy_threshold: u8,
+    /// 模糊匹配仅在同一目录内比较（默认 true）
+    #[serde(default = "default_true")]
+    pub fuzzy_same_dir_only: bool,
+    /// 是否启用相似图片查找
+    #[serde(default)]
+    pub similar_images: bool,
+    /// 相似图片感知哈希汉明距离阈值（0-64）
+    #[serde(default = "default_image_threshold")]
+    pub image_threshold: u32,
+}
+
+fn default_fuzzy_threshold() -> u8 {
+    80
+}
+fn default_image_threshold() -> u32 {
+    10
+}
+fn default_true() -> bool {
+    true
+}
+
+/// 分组类型：精确内容重复 / 文件名模糊匹配 / 相似图片
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GroupKind {
+    /// 内容完全相同的重复文件
+    Exact,
+    /// 文件名模糊匹配（需人工确认）
+    FuzzyName,
+    /// 感知哈希相似图片（需人工确认）
+    SimilarImage,
 }
 
 /// 保留策略：决定每组中谁是"参考文件"（不会被删除）
@@ -86,18 +123,20 @@ impl FileEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DuplicateGroup {
     pub files: Vec<FileEntry>,
-    /// 组内单文件大小（组内所有文件同大小）
+    /// 分组类型
+    pub kind: GroupKind,
+    /// 组内第一个文件（参考文件）的大小
     pub file_size: u64,
-    /// 可释放空间 = (n-1) * file_size
+    /// 可释放空间 = 组内除参考文件外所有文件大小之和
     pub reclaimable: u64,
 }
 
 impl DuplicateGroup {
     /// 构造分组；调用方需保证 `files` 已按保留策略排序（files[0] 为参考文件）
-    pub fn new(files: Vec<FileEntry>) -> Self {
+    pub fn new(files: Vec<FileEntry>, kind: GroupKind) -> Self {
         let file_size = files.first().map(|f| f.size).unwrap_or(0);
-        let reclaimable = if files.len() > 1 { file_size * (files.len() as u64 - 1) } else { 0 };
-        Self { files, file_size, reclaimable }
+        let reclaimable = files.iter().skip(1).map(|f| f.size).sum();
+        Self { files, kind, file_size, reclaimable }
     }
 }
 

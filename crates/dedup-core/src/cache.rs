@@ -29,9 +29,43 @@ impl HashCache {
                 partial_hash TEXT,
                 full_hash TEXT,
                 scanned_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS image_cache (
+                path TEXT PRIMARY KEY,
+                size INTEGER NOT NULL,
+                mtime INTEGER NOT NULL,
+                phash TEXT,
+                scanned_at INTEGER NOT NULL
             );",
         )?;
         Ok(Self { conn, hits: 0 })
+    }
+
+    /// 查询图片感知哈希缓存；未命中或元数据变化返回 None
+    pub fn get_phash(&mut self, path: &str, size: u64, mtime: u64) -> rusqlite::Result<Option<u64>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT phash FROM image_cache WHERE path=?1 AND size=?2 AND mtime=?3")?;
+        let mut rows = stmt.query(params![path, size as i64, mtime as i64])?;
+        if let Some(row) = rows.next()? {
+            let hex: Option<String> = row.get(0)?;
+            let v = hex.and_then(|h| u64::from_str_radix(&h, 16).ok());
+            Ok(v)
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn put_phash(&mut self, path: &str, size: u64, mtime: u64, phash: u64) -> rusqlite::Result<()> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        self.conn.execute(
+            "INSERT OR REPLACE INTO image_cache (path, size, mtime, phash, scanned_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![path, size as i64, mtime as i64, format!("{phash:016x}"), now],
+        )?;
+        Ok(())
     }
 
     /// 命中返回 Some；未命中或元数据变化返回 None
@@ -92,16 +126,20 @@ impl HashCache {
 
     /// 清空缓存，返回删除的行数
     pub fn clear(&mut self) -> rusqlite::Result<u64> {
-        let n = self.conn.execute("DELETE FROM scan_cache", [])?;
-        Ok(n as u64)
+        let n1 = self.conn.execute("DELETE FROM scan_cache", [])?;
+        let n2 = self.conn.execute("DELETE FROM image_cache", [])?;
+        Ok((n1 + n2) as u64)
     }
 
-    /// 统计缓存条目数
+    /// 统计缓存条目数（含图片哈希缓存）
     pub fn count(&self) -> rusqlite::Result<u64> {
-        let n: i64 = self
+        let n1: i64 = self
             .conn
             .query_row("SELECT COUNT(*) FROM scan_cache", [], |r| r.get(0))?;
-        Ok(n as u64)
+        let n2: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM image_cache", [], |r| r.get(0))?;
+        Ok((n1 + n2) as u64)
     }
 }
 

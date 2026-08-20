@@ -17,7 +17,14 @@ export default defineConfig({
     // 项目可能通过目录联接（junction）访问，真实路径与 serve root 不一致，
     // 关闭 vite 的文件系统严格限制以正常加载源码
     fs: { strict: false },
+    // 不监听本机工具链/调研资料等目录，避免文件写入触发 EBUSY
+    watch: {
+      ignored: ['**/.toolchain/**', '**/research/**', '**/发布/**', '**/.cargo/**', '**/.git/**'],
+    },
   },
+  // 依赖预构建缓存放到纯 ASCII 路径，规避 junction/realpath 混合导致的
+  // 优化器元数据损坏（Cannot read properties of undefined (reading 'imports')）
+  cacheDir: 'D:/filededup-vite-cache',
   envPrefix: ['VITE_', 'TAURI_'],
   build: {
     target: 'chrome105',

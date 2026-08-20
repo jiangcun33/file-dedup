@@ -26,6 +26,12 @@ const followSymlinks = ref(false)
 const keepStrategy = ref<KeepStrategy>('keep_oldest')
 const useCache = ref(true)
 const cachePath = ref('')
+// M2：模糊匹配与相似图片
+const fuzzyFilename = ref(false)
+const fuzzyThreshold = ref(80)
+const fuzzySameDir = ref(true)
+const similarImages = ref(false)
+const imageThreshold = ref(10)
 const scanning = ref(false)
 const progressMsg = ref('')
 const progressPct = ref(0)
@@ -95,6 +101,11 @@ async function startScan() {
     keep_strategy: keepStrategy.value,
     use_cache: useCache.value,
     cache_path: cachePath.value,
+    fuzzy_filename: fuzzyFilename.value,
+    fuzzy_threshold: fuzzyThreshold.value,
+    fuzzy_same_dir_only: fuzzySameDir.value,
+    similar_images: similarImages.value,
+    image_threshold: imageThreshold.value,
   }
   try {
     const result = await runScan(options)
@@ -179,6 +190,39 @@ async function stopScan() {
       </el-form>
     </el-card>
 
+    <el-card shadow="never" class="block">
+      <template #header><span>③ 智能匹配（M2，结果需人工确认）</span></template>
+      <el-form label-width="110px" size="default">
+        <el-form-item label="文件名模糊匹配">
+          <el-switch v-model="fuzzyFilename" />
+          <span class="unit">按文件名相似度找重复（dupeGuru 算法）</span>
+        </el-form-item>
+        <template v-if="fuzzyFilename">
+          <el-form-item label="相似度阈值">
+            <el-slider v-model="fuzzyThreshold" :min="60" :max="99" :step="1" show-input style="max-width: 260px" />
+            <span class="unit">{{ fuzzyThreshold }}%</span>
+          </el-form-item>
+          <el-form-item label="仅同目录比较">
+            <el-switch v-model="fuzzySameDir" />
+            <span class="unit">关闭则跨目录比较（可能产生较多结果）</span>
+          </el-form-item>
+        </template>
+        <el-form-item label="相似图片查找">
+          <el-switch v-model="similarImages" />
+          <span class="unit">感知哈希，可识别不同尺寸/格式/压缩率的相似图（自动扫描 jpg/png/gif/webp 等）</span>
+        </el-form-item>
+        <template v-if="similarImages">
+          <el-form-item label="相似度阈值">
+            <el-slider v-model="imageThreshold" :min="1" :max="20" :step="1" show-input style="max-width: 260px" />
+            <span class="unit">汉明距离 ≤ {{ imageThreshold }} / 63（越小越严格）</span>
+          </el-form-item>
+        </template>
+        <el-form-item>
+          <span class="hint">⚠️ 模糊匹配与相似图片结果为「建议项」，可能存在误报，执行删除等操作前请人工确认。</span>
+        </el-form-item>
+      </el-form>
+    </el-card>
+
     <div class="action-bar">
       <template v-if="!scanning">
         <el-button type="primary" size="large" @click="startScan">开始扫描</el-button>
@@ -226,6 +270,10 @@ async function stopScan() {
   color: #909399;
   font-size: 12px;
   word-break: break-all;
+}
+.hint {
+  color: #e6a23c;
+  font-size: 12px;
 }
 .action-bar {
   display: flex;

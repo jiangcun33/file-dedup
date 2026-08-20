@@ -1,6 +1,6 @@
 [package]
 name = "filededup"
-version = "0.1.0"
+version = "0.1.1"
 description = "文件去重 - Windows 文件去重工具"
 edition = "2021"
 

@@ -6,6 +6,7 @@ import { open } from '@tauri-apps/plugin-dialog'
 // ---------- 类型 ----------
 export type KeepStrategy = 'keep_newest' | 'keep_oldest' | 'keep_largest' | 'keep_first'
 export type ActionKind = 'trash' | 'delete' | 'hardlink' | 'move' | 'copy'
+export type GroupKind = 'exact' | 'fuzzy_name' | 'similar_image'
 
 export interface ScanOptions {
   paths: string[]
@@ -20,6 +21,11 @@ export interface ScanOptions {
   keep_strategy: KeepStrategy
   use_cache: boolean
   cache_path: string
+  fuzzy_filename: boolean
+  fuzzy_threshold: number
+  fuzzy_same_dir_only: boolean
+  similar_images: boolean
+  image_threshold: number
 }
 
 export interface FileEntry {
@@ -31,6 +37,7 @@ export interface FileEntry {
 
 export interface DuplicateGroup {
   files: FileEntry[]
+  kind: GroupKind
   file_size: number
   reclaimable: number
 }

@@ -7,7 +7,7 @@
 //! 哈希缓存：以 (path, size, mtime) 为键，缓存部分哈希与全哈希，避免重复计算。
 
 use crate::cache::HashCache;
-use crate::models::{DuplicateGroup, FileEntry, KeepStrategy, ProgressUpdate, ScanOptions};
+use crate::models::{DuplicateGroup, FileEntry, GroupKind, KeepStrategy, ProgressUpdate, ScanOptions};
 use crate::progress::{is_cancelled, send};
 use crossbeam_channel::Sender;
 use rayon::prelude::*;
@@ -75,8 +75,8 @@ fn compute_partial(entry: &FileEntry) -> std::io::Result<(u128, Option<[u8; 32]>
     }
 }
 
-/// 对组内文件按保留策略排序，files[0] 即参考文件
-fn sort_by_keep(files: &mut Vec<FileEntry>, strategy: KeepStrategy) {
+/// 对组内文件按保留策略排序，files[0] 即参考文件（供各扫描模式复用）
+pub fn sort_by_keep(files: &mut Vec<FileEntry>, strategy: KeepStrategy) {
     match strategy {
         KeepStrategy::KeepNewest => files.sort_by(|a, b| b.modified.cmp(&a.modified).then(a.path.cmp(&b.path))),
         KeepStrategy::KeepOldest => files.sort_by(|a, b| a.modified.cmp(&b.modified).then(a.path.cmp(&b.path))),
@@ -214,7 +214,7 @@ pub fn find_duplicates(
             continue;
         }
         sort_by_keep(&mut files, opts.keep_strategy);
-        groups.push(DuplicateGroup::new(files));
+        groups.push(DuplicateGroup::new(files, GroupKind::Exact));
     }
     groups.sort_by(|a, b| b.reclaimable.cmp(&a.reclaimable));
     send(progress_tx, "hash", 4, 4, &format!("完成：找到 {} 组重复", groups.len()));

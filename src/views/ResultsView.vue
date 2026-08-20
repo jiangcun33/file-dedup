@@ -12,6 +12,7 @@ import {
   type ActionResult,
   type ActionKind,
   type ActionItem,
+  type GroupKind,
 } from '../api'
 
 const props = defineProps<{ result: ScanResult }>()
@@ -20,6 +21,24 @@ const emit = defineEmits<{ (e: 'back'): void }>()
 const groups = ref<DuplicateGroup[]>(props.result.groups.map((g) => ({ ...g, files: g.files.map((f) => ({ ...f })) })))
 const activeNames = ref<string[]>(groups.value.map((_, i) => String(i)))
 const pending = ref(false)
+
+// 分组类型筛选（显示层）
+const kindFilter = ref<'all' | GroupKind>('all')
+const visibleGroups = computed(() =>
+  groups.value
+    .map((g, i) => ({ g, i }))
+    .filter(({ g }) => kindFilter.value === 'all' || g.kind === kindFilter.value),
+)
+function kindInfo(k: GroupKind): { text: string; type: 'primary' | 'warning' | 'success' } {
+  switch (k) {
+    case 'exact':
+      return { text: '精确重复', type: 'primary' }
+    case 'fuzzy_name':
+      return { text: '文件名模糊', type: 'warning' }
+    case 'similar_image':
+      return { text: '相似图片', type: 'success' }
+  }
+}
 
 // 每个组内勾选的副本路径（默认除参考外全勾）
 const checked = ref<Record<number, Set<string>>>({})
@@ -51,19 +70,19 @@ function setChecked(i: number, set: Set<string>) {
   checked.value[i] = set
 }
 
-// ---------- 全局选择 ----------
+// ---------- 全局选择（仅作用于当前筛选可见的分组） ----------
 function selectAllCopies() {
-  groups.value.forEach((g, i) => {
+  visibleGroups.value.forEach(({ g, i }) => {
     const set = new Set<string>()
     g.files.forEach((f, idx) => { if (idx > 0) set.add(f.path) })
     setChecked(i, set)
   })
 }
 function clearSelection() {
-  groups.value.forEach((_, i) => setChecked(i, new Set()))
+  visibleGroups.value.forEach(({ i }) => setChecked(i, new Set()))
 }
 function invertSelection() {
-  groups.value.forEach((g, i) => {
+  visibleGroups.value.forEach(({ g, i }) => {
     const cur = checked.value[i] || new Set()
     const set = new Set<string>()
     g.files.forEach((f, idx) => {
@@ -135,7 +154,7 @@ function matchesCriterion(f: FileEntry): boolean {
 }
 function applyBatchSelect() {
   let matched = 0
-  groups.value.forEach((g, i) => {
+  visibleGroups.value.forEach(({ g, i }) => {
     const set = new Set(checked.value[i] || [])
     nonRefFiles(g).forEach(({ file }) => {
       if (matchesCriterion(file)) {
@@ -160,7 +179,7 @@ function selUnit(): string {
 // ---------- 批量操作 ----------
 function collectCheckedItems(): { gi: number; g: DuplicateGroup; file: FileEntry }[] {
   const items: { gi: number; g: DuplicateGroup; file: FileEntry }[] = []
-  groups.value.forEach((g, gi) => {
+  visibleGroups.value.forEach(({ g, i: gi }) => {
     const set = checked.value[gi] || new Set()
     g.files.forEach((file, idx) => {
       if (idx > 0 && set.has(file.path)) items.push({ gi, g, file })
@@ -169,6 +188,14 @@ function collectCheckedItems(): { gi: number; g: DuplicateGroup; file: FileEntry
   return items
 }
 const checkedCount = computed(() => collectCheckedItems().length)
+
+const ACTION_NAMES: Record<ActionKind, string> = {
+  trash: '移到回收站',
+  delete: '永久删除',
+  hardlink: '硬链接替换',
+  move: '移动到',
+  copy: '复制到',
+}
 
 async function executeBatch(kind: ActionKind) {
   const items = collectCheckedItems()
@@ -182,6 +209,19 @@ async function executeBatch(kind: ActionKind) {
         `将永久删除 ${items.length} 个文件，此操作不可恢复！\n\n${items.slice(0, 5).map((x) => x.file.path).join('\n')}${items.length > 5 ? `\n…等 ${items.length} 个文件` : ''}`,
         '永久删除确认',
         { type: 'warning', confirmButtonText: '永久删除', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' },
+      )
+    } catch {
+      return
+    }
+  }
+  // 模糊/相似结果需人工确认（可能不是真正重复）
+  const suspect = items.filter(({ g }) => g.kind !== 'exact')
+  if (suspect.length > 0 && kind !== 'delete') {
+    try {
+      await ElMessageBox.confirm(
+        `其中 ${suspect.length} 个文件来自「${suspect[0].g.kind === 'fuzzy_name' ? '文件名模糊匹配' : '相似图片'}」结果，可能并非真正重复。\n确定对它们执行「${ACTION_NAMES[kind]}」吗？`,
+        '需人工确认',
+        { type: 'warning', confirmButtonText: '确认执行', cancelButtonText: '取消' },
       )
     } catch {
       return
@@ -306,12 +346,20 @@ async function doGroupAction(g: DuplicateGroup, i: number, kind: ActionKind) {
       </el-card>
 
       <div class="toolbar">
-        <el-button size="small" @click="activeNames = groups.map((_, i) => String(i))">全部展开</el-button>
+        <el-select v-model="kindFilter" size="small" style="width: 130px">
+          <el-option label="全部类型" value="all" />
+          <el-option label="精确重复" value="exact" />
+          <el-option label="文件名模糊" value="fuzzy_name" />
+          <el-option label="相似图片" value="similar_image" />
+        </el-select>
+        <el-button size="small" @click="activeNames = visibleGroups.map(({ i }) => String(i))">全部展开</el-button>
         <el-button size="small" @click="activeNames = []">全部折叠</el-button>
       </div>
 
+      <el-empty v-if="visibleGroups.length === 0" description="当前筛选条件下没有分组" :image-size="60" />
+
       <el-collapse v-model="activeNames">
-        <el-collapse-item v-for="(g, i) in groups" :key="g.files[0]?.path + i" :name="String(i)">
+        <el-collapse-item v-for="{ g, i } in visibleGroups" :key="g.files[0]?.path + i" :name="String(i)">
           <template #title>
             <div class="group-title">
               <el-checkbox
@@ -320,7 +368,9 @@ async function doGroupAction(g: DuplicateGroup, i: number, kind: ActionKind) {
                 @click.stop
               />
               <span class="gt-count">{{ g.files.length }} 个文件</span>
-              <el-tag size="small" type="info">每个 {{ formatBytes(g.file_size) }}</el-tag>
+              <el-tag size="small" :type="kindInfo(g.kind).type">{{ kindInfo(g.kind).text }}</el-tag>
+              <el-tag v-if="g.kind === 'exact'" size="small" type="info">每个 {{ formatBytes(g.file_size) }}</el-tag>
+              <el-tag v-else size="small" type="info">大小不等</el-tag>
               <el-tag size="small" type="success">可释放 {{ formatBytes(g.reclaimable) }}</el-tag>
             </div>
           </template>
