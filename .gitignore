@@ -1,0 +1,27 @@
+# ---- 依赖与构建产物 ----
+node_modules/
+dist/
+target/
+src-tauri/target/
+src-tauri/gen/
+
+# ---- 发布产物 ----
+发布/
+
+# ---- 本机专用配置（代理、构建目录等） ----
+.cargo/
+.npmrc
+
+# ---- 本地工具链 ----
+.toolchain/
+
+# ---- 调研资料（第三方源码与归档，不入库） ----
+research/repos/
+
+# ---- 设计源文件 ----
+icon/*.psd
+
+# ---- 系统文件 ----
+Thumbs.db
+*.log
+.DS_Store

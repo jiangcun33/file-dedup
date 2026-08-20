@@ -1,0 +1,10 @@
+# 统一换行符
+* text=auto
+
+# 二进制文件
+*.dll binary
+*.png binary
+*.ico binary
+*.icns binary
+*.exe binary
+*.zip binary

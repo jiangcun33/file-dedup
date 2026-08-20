@@ -1,0 +1,511 @@
+<script setup lang="ts">
+import { ref, computed } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  applyAction,
+  formatBytes,
+  formatDate,
+  pickDirectory,
+  type ScanResult,
+  type DuplicateGroup,
+  type FileEntry,
+  type ActionResult,
+  type ActionKind,
+  type ActionItem,
+} from '../api'
+
+const props = defineProps<{ result: ScanResult }>()
+const emit = defineEmits<{ (e: 'back'): void }>()
+
+const groups = ref<DuplicateGroup[]>(props.result.groups.map((g) => ({ ...g, files: g.files.map((f) => ({ ...f })) })))
+const activeNames = ref<string[]>(groups.value.map((_, i) => String(i)))
+const pending = ref(false)
+
+// 每个组内勾选的副本路径（默认除参考外全勾）
+const checked = ref<Record<number, Set<string>>>({})
+
+function initChecks(g: DuplicateGroup, i: number) {
+  const set = new Set<string>()
+  g.files.forEach((f, idx) => {
+    if (idx > 0) set.add(f.path)
+  })
+  checked.value[i] = set
+}
+groups.value.forEach((g, i) => initChecks(g, i))
+
+const totalReclaimable = computed(() => groups.value.reduce((s, g) => s + g.reclaimable, 0))
+const totalDupFiles = computed(() => groups.value.reduce((s, g) => s + Math.max(0, g.files.length - 1), 0))
+
+// ---------- 工具函数 ----------
+function fileName(p: string): string {
+  const parts = p.split(/[\\/]/)
+  return parts[parts.length - 1] || p
+}
+function pathDepth(p: string): number {
+  return p.split(/[\\/]/).length - 1
+}
+function nonRefFiles(g: DuplicateGroup): { file: FileEntry; idx: number }[] {
+  return g.files.map((file, idx) => ({ file, idx })).filter((x) => x.idx > 0)
+}
+function setChecked(i: number, set: Set<string>) {
+  checked.value[i] = set
+}
+
+// ---------- 全局选择 ----------
+function selectAllCopies() {
+  groups.value.forEach((g, i) => {
+    const set = new Set<string>()
+    g.files.forEach((f, idx) => { if (idx > 0) set.add(f.path) })
+    setChecked(i, set)
+  })
+}
+function clearSelection() {
+  groups.value.forEach((_, i) => setChecked(i, new Set()))
+}
+function invertSelection() {
+  groups.value.forEach((g, i) => {
+    const cur = checked.value[i] || new Set()
+    const set = new Set<string>()
+    g.files.forEach((f, idx) => {
+      if (idx > 0 && !cur.has(f.path)) set.add(f.path)
+    })
+    setChecked(i, set)
+  })
+}
+
+// ---------- 批量设置保留（每组按条件重排，参考文件置顶） ----------
+const keepDialog = ref(false)
+const keepCriterion = ref<'name_long' | 'name_short' | 'depth_deep' | 'depth_shallow' | 'created_new' | 'created_old' | 'modified_new' | 'modified_old'>('modified_new')
+
+function applyKeepCriterion() {
+  let changed = 0
+  groups.value.forEach((g) => {
+    if (g.files.length < 2) return
+    let target = 0
+    for (let idx = 1; idx < g.files.length; idx++) {
+      if (betterKeep(g.files[idx], g.files[target])) target = idx
+    }
+    if (target !== 0) {
+      const f = g.files.splice(target, 1)[0]
+      g.files.unshift(f)
+      changed++
+    }
+  })
+  groups.value.forEach((g, i) => initChecks(g, i))
+  keepDialog.value = false
+  ElMessage.success(changed > 0 ? `已按条件重排 ${changed} 组（每组第一个为保留文件）` : '各组的保留文件已是最优')
+}
+function betterKeep(a: FileEntry, b: FileEntry): boolean {
+  switch (keepCriterion.value) {
+    case 'name_long': return fileName(a.path).length > fileName(b.path).length
+    case 'name_short': return fileName(a.path).length < fileName(b.path).length
+    case 'depth_deep': return pathDepth(a.path) > pathDepth(b.path)
+    case 'depth_shallow': return pathDepth(a.path) < pathDepth(b.path)
+    case 'created_new': return a.created > b.created
+    case 'created_old': return a.created < b.created
+    case 'modified_new': return a.modified > b.modified
+    case 'modified_old': return a.modified < b.modified
+  }
+}
+
+// ---------- 批量选择（按条件勾选副本） ----------
+const selectDialog = ref(false)
+const selCriterion = ref<'name_ge' | 'name_le' | 'depth_ge' | 'depth_le' | 'created_before' | 'created_after' | 'modified_before' | 'modified_after' | 'name_contains' | 'name_not_contains'>('name_ge')
+const selValue = ref<number | string>(10)
+const selValueText = computed(() => {
+  const v = selValue.value
+  return typeof v === 'number' ? String(v) : v
+})
+
+function matchesCriterion(f: FileEntry): boolean {
+  const name = fileName(f.path)
+  const nowDays = Math.floor(Date.now() / 1000 / 86400)
+  switch (selCriterion.value) {
+    case 'name_ge': return name.length >= Number(selValueText)
+    case 'name_le': return name.length <= Number(selValueText)
+    case 'depth_ge': return pathDepth(f.path) >= Number(selValueText)
+    case 'depth_le': return pathDepth(f.path) <= Number(selValueText)
+    case 'created_before': return f.created > 0 && f.created < (nowDays - Number(selValueText)) * 86400
+    case 'created_after': return f.created > 0 && f.created > (nowDays - Number(selValueText)) * 86400
+    case 'modified_before': return f.modified > 0 && f.modified < (nowDays - Number(selValueText)) * 86400
+    case 'modified_after': return f.modified > 0 && f.modified > (nowDays - Number(selValueText)) * 86400
+    case 'name_contains': return name.toLowerCase().includes(selValueText.toLowerCase())
+    case 'name_not_contains': return !name.toLowerCase().includes(selValueText.toLowerCase())
+  }
+}
+function applyBatchSelect() {
+  let matched = 0
+  groups.value.forEach((g, i) => {
+    const set = new Set(checked.value[i] || [])
+    nonRefFiles(g).forEach(({ file }) => {
+      if (matchesCriterion(file)) {
+        set.add(file.path)
+        matched++
+      }
+    })
+    setChecked(i, set)
+  })
+  selectDialog.value = false
+  ElMessage.success(`已按条件勾选 ${matched} 个副本文件`)
+}
+function isTextCriterion(): boolean {
+  return selCriterion.value === 'name_contains' || selCriterion.value === 'name_not_contains'
+}
+function selUnit(): string {
+  if (selCriterion.value.startsWith('name')) return '字符'
+  if (selCriterion.value.startsWith('depth')) return '层'
+  return '天前'
+}
+
+// ---------- 批量操作 ----------
+function collectCheckedItems(): { gi: number; g: DuplicateGroup; file: FileEntry }[] {
+  const items: { gi: number; g: DuplicateGroup; file: FileEntry }[] = []
+  groups.value.forEach((g, gi) => {
+    const set = checked.value[gi] || new Set()
+    g.files.forEach((file, idx) => {
+      if (idx > 0 && set.has(file.path)) items.push({ gi, g, file })
+    })
+  })
+  return items
+}
+const checkedCount = computed(() => collectCheckedItems().length)
+
+async function executeBatch(kind: ActionKind) {
+  const items = collectCheckedItems()
+  if (items.length === 0) {
+    ElMessage.warning('请先勾选要处理的副本文件')
+    return
+  }
+  if (kind === 'delete') {
+    try {
+      await ElMessageBox.confirm(
+        `将永久删除 ${items.length} 个文件，此操作不可恢复！\n\n${items.slice(0, 5).map((x) => x.file.path).join('\n')}${items.length > 5 ? `\n…等 ${items.length} 个文件` : ''}`,
+        '永久删除确认',
+        { type: 'warning', confirmButtonText: '永久删除', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' },
+      )
+    } catch {
+      return
+    }
+  }
+  let dest_dir: string | null = null
+  if (kind === 'move' || kind === 'copy') {
+    const d = await pickDirectory(false)
+    if (!d) return
+    dest_dir = d as string
+  }
+  const reqItems: ActionItem[] = items.map(({ g, file }) => ({
+    file,
+    reference: g.files[0]?.path ?? '',
+  }))
+  pending.value = true
+  try {
+    const results: ActionResult[] = await applyAction({ kind, items: reqItems, dest_dir })
+    const ok = results.filter((r) => r.ok)
+    const fail = results.filter((r) => !r.ok)
+    if (ok.length > 0) ElMessage.success(`${ok.length} 个文件处理成功`)
+    fail.forEach((r) => ElMessage.error(r.message))
+    if (ok.length > 0) {
+      const okPaths = new Set(ok.map((r) => r.path))
+      groups.value = groups.value
+        .map((g) => ({ ...g, files: g.files.filter((f) => !okPaths.has(f.path)) }))
+        .filter((g) => g.files.length > 1)
+      rebuildAll()
+    }
+  } catch (e) {
+    ElMessage.error(`操作失败：${e}`)
+  } finally {
+    pending.value = false
+  }
+}
+
+function rebuildAll() {
+  groups.value.forEach((g, i) => initChecks(g, i))
+  activeNames.value = groups.value.map((_, i) => String(i))
+}
+
+// ---------- 组内交互 ----------
+function toggleAll(g: DuplicateGroup, i: number, on: boolean) {
+  const set = new Set<string>()
+  if (on) g.files.forEach((f, idx) => { if (idx > 0) set.add(f.path) })
+  setChecked(i, set)
+}
+function onCheck(g: DuplicateGroup, i: number, path: string, on: boolean) {
+  const set = new Set(checked.value[i] || [])
+  if (on) set.add(path)
+  else set.delete(path)
+  setChecked(i, set)
+}
+function isAllChecked(g: DuplicateGroup, i: number): boolean {
+  return g.files.length > 1 && (checked.value[i]?.size ?? 0) === g.files.length - 1
+}
+function setReference(g: DuplicateGroup, i: number, fileIdx: number) {
+  if (fileIdx === 0) return
+  const f = g.files.splice(fileIdx, 1)[0]
+  g.files.unshift(f)
+  initChecks(g, i)
+}
+
+// 组内操作复用批量执行（仅本组勾选项）
+async function doGroupAction(g: DuplicateGroup, i: number, kind: ActionKind) {
+  const set = checked.value[i] || new Set()
+  if (set.size === 0) {
+    ElMessage.warning('请先勾选要处理的副本文件')
+    return
+  }
+  const only = new Set<string>()
+  g.files.forEach((f, idx) => { if (idx > 0 && set.has(f.path)) only.add(f.path) })
+  const saved = checked.value
+  checked.value = { ...saved, [i]: only }
+  try {
+    await executeBatch(kind)
+  } finally {
+    checked.value = saved
+    groups.value.forEach((gg, ii) => initChecks(gg, ii))
+  }
+}
+</script>
+
+<template>
+  <div class="page results-page">
+    <el-card shadow="never" class="summary">
+      <div class="summary-row">
+        <el-tag size="large" type="primary">{{ groups.length }} 组重复</el-tag>
+        <el-tag size="large" type="danger">可释放 {{ formatBytes(totalReclaimable) }}</el-tag>
+        <el-tag size="large" type="info">{{ totalDupFiles }} 个副本文件</el-tag>
+        <el-tag size="large" type="info">扫描 {{ result.scanned_files }} 个文件</el-tag>
+        <el-tag size="large" type="success">缓存命中 {{ result.cache_hits }}</el-tag>
+        <el-tag size="large">耗时 {{ (result.elapsed_ms / 1000).toFixed(1) }}s</el-tag>
+        <div class="spacer" />
+        <el-button @click="emit('back')">← 重新扫描</el-button>
+      </div>
+    </el-card>
+
+    <el-empty v-if="groups.length === 0" description="没有重复文件了" />
+
+    <template v-else>
+      <!-- 选择工具栏 -->
+      <el-card shadow="never" class="toolbar-card">
+        <div class="tool-row">
+          <span class="tool-label">选择：</span>
+          <el-button size="small" type="primary" plain @click="selectAllCopies">全选副本</el-button>
+          <el-button size="small" @click="clearSelection">取消全选</el-button>
+          <el-button size="small" @click="invertSelection">反选</el-button>
+          <el-divider direction="vertical" />
+          <el-button size="small" type="warning" plain @click="keepDialog = true">批量设置保留…</el-button>
+          <el-button size="small" type="success" plain @click="selectDialog = true">按条件批量选择…</el-button>
+        </div>
+        <div class="tool-row">
+          <span class="tool-label">批量操作（已勾选 <b class="hl">{{ checkedCount }}</b> 个副本）：</span>
+          <el-button size="small" type="danger" plain :loading="pending" @click="executeBatch('trash')">移到回收站</el-button>
+          <el-button size="small" type="danger" :loading="pending" @click="executeBatch('delete')">永久删除</el-button>
+          <el-button size="small" type="warning" plain :loading="pending" @click="executeBatch('hardlink')">硬链接替换</el-button>
+          <el-button size="small" :loading="pending" @click="executeBatch('move')">移动到…</el-button>
+          <el-button size="small" :loading="pending" @click="executeBatch('copy')">复制到…</el-button>
+          <span class="hint">硬链接替换时，每组文件链接到各自组的保留文件</span>
+        </div>
+      </el-card>
+
+      <div class="toolbar">
+        <el-button size="small" @click="activeNames = groups.map((_, i) => String(i))">全部展开</el-button>
+        <el-button size="small" @click="activeNames = []">全部折叠</el-button>
+      </div>
+
+      <el-collapse v-model="activeNames">
+        <el-collapse-item v-for="(g, i) in groups" :key="g.files[0]?.path + i" :name="String(i)">
+          <template #title>
+            <div class="group-title">
+              <el-checkbox
+                :model-value="isAllChecked(g, i)"
+                @change="(v: boolean) => toggleAll(g, i, !!v)"
+                @click.stop
+              />
+              <span class="gt-count">{{ g.files.length }} 个文件</span>
+              <el-tag size="small" type="info">每个 {{ formatBytes(g.file_size) }}</el-tag>
+              <el-tag size="small" type="success">可释放 {{ formatBytes(g.reclaimable) }}</el-tag>
+            </div>
+          </template>
+
+          <div class="group-body">
+            <el-table :data="g.files" size="small" :row-key="(f: FileEntry) => f.path" border>
+              <el-table-column width="48" align="center">
+                <template #default="{ row, $index }">
+                  <el-checkbox
+                    :model-value="checked[i]?.has(row.path) || false"
+                    :disabled="$index === 0"
+                    @change="(v: boolean) => onCheck(g, i, row.path, !!v)"
+                  />
+                </template>
+              </el-table-column>
+              <el-table-column label="文件路径" min-width="380">
+                <template #default="{ row, $index }">
+                  <span class="path-cell">{{ row.path }}</span>
+                  <el-tag v-if="$index === 0" size="small" type="warning" style="margin-left: 6px">保留</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="大小" width="110">
+                <template #default="{ row }">{{ formatBytes(row.size) }}</template>
+              </el-table-column>
+              <el-table-column label="修改时间" width="150">
+                <template #default="{ row }">{{ formatDate(row.modified) }}</template>
+              </el-table-column>
+              <el-table-column label="创建时间" width="150">
+                <template #default="{ row }">{{ formatDate(row.created) }}</template>
+              </el-table-column>
+              <el-table-column label="操作" width="110">
+                <template #default="{ $index }">
+                  <el-button
+                    v-if="$index !== 0"
+                    link
+                    type="primary"
+                    size="small"
+                    @click="setReference(g, i, $index)"
+                  >
+                    设为保留
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+
+            <div class="group-actions">
+              <el-button type="danger" plain size="small" :loading="pending" @click="doGroupAction(g, i, 'trash')">
+                移到回收站
+              </el-button>
+              <el-button type="danger" size="small" :loading="pending" @click="doGroupAction(g, i, 'delete')">
+                永久删除
+              </el-button>
+              <el-button type="warning" plain size="small" :loading="pending" @click="doGroupAction(g, i, 'hardlink')">
+                硬链接替换
+              </el-button>
+              <el-button plain size="small" :loading="pending" @click="doGroupAction(g, i, 'move')">移动到…</el-button>
+              <el-button plain size="small" :loading="pending" @click="doGroupAction(g, i, 'copy')">复制到…</el-button>
+            </div>
+          </div>
+        </el-collapse-item>
+      </el-collapse>
+    </template>
+
+    <!-- 批量设置保留对话框 -->
+    <el-dialog v-model="keepDialog" title="批量设置保留文件" width="420px">
+      <p class="dlg-desc">按下列条件重排每组文件，每组第一个文件将作为「保留文件」（不会被删除）。</p>
+      <el-select v-model="keepCriterion" style="width: 100%">
+        <el-option label="保留文件名最长" value="name_long" />
+        <el-option label="保留文件名最短" value="name_short" />
+        <el-option label="保留路径最深（子目录里）" value="depth_deep" />
+        <el-option label="保留路径最浅（靠根目录）" value="depth_shallow" />
+        <el-option label="保留创建时间最新" value="created_new" />
+        <el-option label="保留创建时间最旧" value="created_old" />
+        <el-option label="保留修改时间最新" value="modified_new" />
+        <el-option label="保留修改时间最旧" value="modified_old" />
+      </el-select>
+      <template #footer>
+        <el-button @click="keepDialog = false">取消</el-button>
+        <el-button type="primary" @click="applyKeepCriterion">应用</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 按条件批量选择对话框 -->
+    <el-dialog v-model="selectDialog" title="按条件批量勾选副本" width="460px">
+      <p class="dlg-desc">勾选所有满足条件的副本文件（保留文件不会被勾选）。</p>
+      <el-form label-width="80px">
+        <el-form-item label="条件">
+          <el-select v-model="selCriterion" style="width: 100%">
+            <el-option label="文件名长度 ≥（字符）" value="name_ge" />
+            <el-option label="文件名长度 ≤（字符）" value="name_le" />
+            <el-option label="路径深度 ≥（层）" value="depth_ge" />
+            <el-option label="路径深度 ≤（层）" value="depth_le" />
+            <el-option label="创建时间早于（N 天前）" value="created_before" />
+            <el-option label="创建时间晚于（N 天前）" value="created_after" />
+            <el-option label="修改时间早于（N 天前）" value="modified_before" />
+            <el-option label="修改时间晚于（N 天前）" value="modified_after" />
+            <el-option label="文件名包含" value="name_contains" />
+            <el-option label="文件名不包含" value="name_not_contains" />
+          </el-select>
+        </el-form-item>
+        <el-form-item :label="isTextCriterion() ? '文本' : '数值'">
+          <el-input v-if="isTextCriterion()" v-model="selValueText" placeholder="如：副本 / copy" />
+          <el-input-number v-else v-model="selValue" :min="0" :max="10000" />
+          <span v-if="!isTextCriterion()" class="unit">{{ selUnit() }}</span>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="selectDialog = false">取消</el-button>
+        <el-button type="primary" @click="applyBatchSelect">应用选择</el-button>
+      </template>
+    </el-dialog>
+  </div>
+</template>
+
+<style scoped>
+.results-page {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+.summary {
+  margin-bottom: 10px;
+}
+.summary-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.spacer {
+  flex: 1;
+}
+.toolbar-card {
+  margin-bottom: 10px;
+}
+.tool-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 4px 0;
+}
+.tool-label {
+  color: #606266;
+  font-size: 13px;
+}
+.hl {
+  color: #f56c6c;
+}
+.hint {
+  color: #909399;
+  font-size: 12px;
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.group-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding-right: 12px;
+}
+.gt-count {
+  font-weight: 600;
+}
+.group-body {
+  padding: 4px 8px 12px;
+}
+.group-actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.dlg-desc {
+  color: #909399;
+  font-size: 12px;
+  margin: 0 0 10px;
+}
+.unit {
+  margin-left: 8px;
+  color: #909399;
+  font-size: 12px;
+}
+</style>

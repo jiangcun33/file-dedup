@@ -1,0 +1,22 @@
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  font-family: 'Microsoft YaHei', 'Segoe UI', system-ui, sans-serif;
+  background: #f5f7fa;
+  color: #303133;
+}
+
+.page {
+  padding: 16px;
+  height: 100%;
+  box-sizing: border-box;
+  overflow: auto;
+}
+
+.path-cell {
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  word-break: break-all;
+}

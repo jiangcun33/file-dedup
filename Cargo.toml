@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/dedup-core",
+    "src-tauri",
+]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "MIT"
+
+[profile.release]
+lto = true
+strip = true
