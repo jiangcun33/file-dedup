@@ -33,8 +33,9 @@ function onScanned(r: ScanResult) {
       </nav>
     </header>
     <main class="app-main">
-      <ScanView v-if="view === 'scan'" :result="result" @scanned="onScanned" />
-      <ResultsView v-else-if="view === 'results' && result" :result="result" />
+      <!-- v-show 保持两个视图常驻，切换回扫描页时保留已选目录与选项 -->
+      <ScanView v-show="view === 'scan'" :result="result" @scanned="onScanned" />
+      <ResultsView v-if="result" v-show="view === 'results'" :result="result" />
     </main>
   </div>
 </template>
