@@ -70,5 +70,13 @@ function onScanned(r: ScanResult) {
 .app-main {
   flex: 1;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+/* 子视图填满主区域并在内部滚动，窗口缩放时自适应 */
+.app-main > * {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
 }
 </style>

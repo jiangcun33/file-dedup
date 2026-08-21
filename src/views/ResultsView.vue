@@ -458,31 +458,6 @@ function onCheck(g: DuplicateGroup, i: number, path: string, on: boolean) {
 function isAllChecked(g: DuplicateGroup, i: number): boolean {
   return g.files.length > 0 && (checked.value[i]?.size ?? 0) === g.files.length
 }
-function setReference(g: DuplicateGroup, i: number, fileIdx: number) {
-  if (fileIdx === 0) return
-  const f = g.files.splice(fileIdx, 1)[0]
-  g.files.unshift(f)
-  initChecks(g, i)
-}
-
-// 组内操作复用批量执行（仅本组勾选项）
-async function doGroupAction(g: DuplicateGroup, i: number, kind: ActionKind) {
-  const set = checked.value[i] || new Set()
-  if (set.size === 0) {
-    ElMessage.warning('请先勾选要处理的副本文件')
-    return
-  }
-  const only = new Set<string>()
-  g.files.forEach((f) => { if (set.has(f.path)) only.add(f.path) })
-  const saved = checked.value
-  checked.value = { ...saved, [i]: only }
-  try {
-    await executeBatch(kind)
-  } finally {
-    checked.value = saved
-    groups.value.forEach((gg, ii) => initChecks(gg, ii))
-  }
-}
 </script>
 
 <template>
@@ -634,41 +609,14 @@ async function doGroupAction(g: DuplicateGroup, i: number, kind: ActionKind) {
               <el-table-column label="创建时间" width="150">
                 <template #default="{ row }">{{ formatDate(row.created) }}</template>
               </el-table-column>
-              <el-table-column label="操作" width="110">
-                <template #default="{ row }">
-                  <el-button
-                    v-if="row.path !== g.files[0]?.path"
-                    link
-                    type="primary"
-                    size="small"
-                    @click="setReference(g, i, g.files.findIndex((f: FileEntry) => f.path === row.path))"
-                  >
-                    设为保留
-                  </el-button>
-                </template>
-              </el-table-column>
             </el-table>
-
-            <div class="group-actions">
-              <el-button type="danger" plain size="small" :loading="pending" @click="doGroupAction(g, i, 'trash')">
-                移到回收站
-              </el-button>
-              <el-button type="danger" size="small" :loading="pending" @click="doGroupAction(g, i, 'delete')">
-                永久删除
-              </el-button>
-              <el-button type="warning" plain size="small" :loading="pending" @click="doGroupAction(g, i, 'hardlink')">
-                硬链接替换
-              </el-button>
-              <el-button plain size="small" :loading="pending" @click="doGroupAction(g, i, 'move')">移动到…</el-button>
-              <el-button plain size="small" :loading="pending" @click="doGroupAction(g, i, 'copy')">复制到…</el-button>
-            </div>
           </div>
         </el-collapse-item>
       </el-collapse>
     </template>
 
     <!-- 批量设置保留对话框 -->
-    <el-dialog v-model="keepDialog" title="批量设置保留文件" width="460px">
+    <el-dialog v-model="keepDialog" title="批量设置保留文件" width="92%" style="max-width: 460px">
       <p class="dlg-desc">
         设置保留文件：<b>目录类条件</b>将所有符合条件的文件都设为保留（不勾选）；<b>其他条件</b>每组重排，第一个为保留文件。
       </p>
@@ -702,7 +650,7 @@ async function doGroupAction(g: DuplicateGroup, i: number, kind: ActionKind) {
     </el-dialog>
 
     <!-- 按条件批量选择对话框 -->
-    <el-dialog v-model="selectDialog" title="按条件批量勾选副本" width="460px">
+    <el-dialog v-model="selectDialog" title="按条件批量勾选副本" width="92%" style="max-width: 460px">
       <p class="dlg-desc">勾选所有满足条件的文件（含各组保留文件；删除含保留文件时会弹出强警告）。</p>
       <el-form label-width="80px">
         <el-form-item label="条件">
@@ -746,8 +694,7 @@ async function doGroupAction(g: DuplicateGroup, i: number, kind: ActionKind) {
 
 <style scoped>
 .results-page {
-  max-width: 1200px;
-  margin: 0 auto;
+  /* 自适应铺满：窗口缩放时卡片/表格随宽度伸展 */
 }
 .summary {
   margin-bottom: 10px;
@@ -807,12 +754,6 @@ async function doGroupAction(g: DuplicateGroup, i: number, kind: ActionKind) {
 }
 .group-body {
   padding: 4px 8px 12px;
-}
-.group-actions {
-  margin-top: 10px;
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
 }
 .dlg-desc {
   color: #909399;

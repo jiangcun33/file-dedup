@@ -314,8 +314,7 @@ async function stopScan() {
 
 <style scoped>
 .scan-page {
-  max-width: 860px;
-  margin: 0 auto;
+  /* 自适应铺满：窗口缩放时表单与卡片随宽度伸展 */
 }
 .block {
   margin-bottom: 14px;

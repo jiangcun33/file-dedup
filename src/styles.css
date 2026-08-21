@@ -8,7 +8,9 @@ body,
   color: #303133;
 }
 
+/* 页面容器：占满可用空间，内部滚动，不裁剪不遮挡 */
 .page {
+  width: 100%;
   padding: 16px;
   height: 100%;
   box-sizing: border-box;
