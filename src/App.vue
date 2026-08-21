@@ -4,54 +4,109 @@ import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import ScanView from './views/ScanView.vue'
 import ResultsView from './views/ResultsView.vue'
+import { scanState, resultState } from './store'
 import type { ScanResult } from './api'
 
 const view = ref<'scan' | 'results'>('scan')
 const result = ref<ScanResult | null>(null)
-const groupsCount = ref(0)
 const appVersion = ref('')
+const isMaximized = ref(false)
+
+const win = getCurrentWindow()
 
 onMounted(async () => {
   try {
+    // 版本号 + 窗口标题
     appVersion.value = await invoke<string>('app_version')
     const full = `文件去重 v${appVersion.value}`
-    // 同时设置文档标题与原生窗口标题（避免 WebView2 标题同步覆盖）
     document.title = full
-    await getCurrentWindow().setTitle(full)
+    await win.setTitle(full)
+    // 系统强调色注入 CSS 变量
+    const accent = await invoke<string>('get_accent_color')
+    document.documentElement.style.setProperty('--fd-accent', accent)
+    // 最大化状态监听（用于切换恢复按钮图标）
+    isMaximized.value = await win.isMaximized()
+    await win.onResized(() => {
+      win.isMaximized().then((m) => (isMaximized.value = m))
+    })
   } catch {
     /* 非 Tauri 环境忽略 */
   }
 })
 
+function switchView(v: 'scan' | 'results') {
+  view.value = v
+}
+
 function onScanned(r: ScanResult) {
   result.value = r
-  groupsCount.value = r.groups.length
+  resultState.groupCount = r.groups.length
   view.value = 'results'
+}
+
+async function winMinimize() {
+  await win.minimize()
+}
+async function winToggleMaximize() {
+  await win.toggleMaximize()
+}
+async function winClose() {
+  await win.close()
 }
 </script>
 
 <template>
-  <div class="app-shell">
-    <header class="app-header">
-      <span class="logo">🗂️</span>
-      <span class="title">文件去重{{ appVersion ? ` v${appVersion}` : '' }}</span>
-      <nav class="nav">
-        <el-button :type="view === 'scan' ? 'primary' : ''" text @click="view = 'scan'">扫描</el-button>
-        <el-button
-          :type="view === 'results' ? 'primary' : ''"
-          text
-          :disabled="!result"
-          @click="view = 'results'"
-        >
-          结果{{ result ? `（${groupsCount} 组）` : '' }}
-        </el-button>
-      </nav>
-    </header>
+  <div class="app-shell fd-mica">
+    <!-- 自定义标题栏（Fluent） -->
+    <div class="fd-titlebar" data-tauri-drag-region>
+      <span class="fd-title">🗂️ 文件去重</span>
+      <span class="fd-title-ver">{{ appVersion ? `v${appVersion}` : '' }}</span>
+      <div class="fd-winctrl">
+        <button title="最小化" @click="winMinimize"><span class="fd-icon">&#xE921;</span></button>
+        <button :title="isMaximized ? '还原' : '最大化'" @click="winToggleMaximize">
+          <span class="fd-icon">{{ isMaximized ? '&#xE923;' : '&#xE922;' }}</span>
+        </button>
+        <button class="fd-close" title="关闭" @click="winClose"><span class="fd-icon">&#xE8BB;</span></button>
+      </div>
+    </div>
+
+    <!-- 下划线 Tab -->
+    <nav class="fd-tabs" style="padding: 0 16px; background: var(--fd-surface); border-bottom: 1px solid var(--fd-border)">
+      <button class="fd-tab" :class="{ active: view === 'scan' }" @click="switchView('scan')">扫描</button>
+      <button
+        class="fd-tab"
+        :class="{ active: view === 'results' }"
+        :disabled="!result"
+        style="opacity: 0.6"
+        @click="switchView('results')"
+      >
+        结果{{ result ? `（${resultState.groupCount}）` : '' }}
+      </button>
+    </nav>
+
     <main class="app-main">
-      <!-- v-show 保持两个视图常驻，切换回扫描页时保留已选目录与选项 -->
+      <!-- v-show 保持视图常驻，切换回扫描页保留已选目录与选项 -->
       <ScanView v-show="view === 'scan'" :result="result" @scanned="onScanned" />
       <ResultsView v-if="result" v-show="view === 'results'" :result="result" />
     </main>
+
+    <!-- 底部状态栏 -->
+    <footer class="fd-statusbar">
+      <span class="fd-sb-item">
+        <span class="fd-icon">&#xE7F4;</span>
+        <template v-if="scanState.scanning">正在扫描：{{ scanState.progressMsg }}</template>
+        <template v-else-if="view === 'results'">扫描完成</template>
+        <template v-else>就绪</template>
+      </span>
+      <span class="fd-sb-item">
+        <span class="fd-icon">&#xE8F1;</span>
+        <span>已选 <b class="fd-num">{{ resultState.selectedCount }}</b> 个文件</span>
+      </span>
+      <span class="fd-sb-item">
+        <span class="fd-icon">&#xEA18;</span>
+        <span>可释放 {{ resultState.reclaimable > 0 ? (resultState.reclaimable / 1048576).toFixed(1) + ' MB' : '-' }}</span>
+      </span>
+    </footer>
   </div>
 </template>
 
@@ -61,37 +116,18 @@ function onScanned(r: ScanResult) {
   flex-direction: column;
   height: 100%;
 }
-.app-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 16px;
-  background: #fff;
-  border-bottom: 1px solid #e4e7ed;
-  flex: none;
-}
-.logo {
-  font-size: 22px;
-}
-.title {
-  font-size: 17px;
-  font-weight: 600;
-  margin-right: 8px;
-}
-.nav {
-  display: flex;
-  gap: 4px;
-}
 .app-main {
   flex: 1;
   overflow: hidden;
   display: flex;
   flex-direction: column;
 }
-/* 子视图填满主区域并在内部滚动，窗口缩放时自适应 */
 .app-main > * {
   flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
+}
+.fd-num {
+  color: var(--fd-text);
 }
 </style>

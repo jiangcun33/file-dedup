@@ -26,10 +26,11 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(ScanState::default())
         .setup(|app| {
-            // 启动时把窗口标题设为「文件去重 + 版本号」（原生设置，不受前端权限限制）
-            if let Some(win) = app.get_webview_window("main") {
-                let _ = win.set_title(&format!("文件去重 v{}", env!("CARGO_PKG_VERSION")));
-            }
+            let win = app.get_webview_window("main").unwrap();
+            // 启动时把窗口标题设为「文件去重 + 版本号」
+            let _ = win.set_title(&format!("文件去重 v{}", env!("CARGO_PKG_VERSION")));
+            // 注：真实 Mica 为 Win11 专属（需透明窗口），当前环境为 Win10，
+            // 云母质感由前端 CSS 分层模拟（深浅模式自适应），见 styles.css。
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -40,7 +41,10 @@ pub fn run() {
             clear_cache,
             get_cache_stats,
             default_cache_path,
-            app_version
+            app_version,
+            get_accent_color,
+            open_path,
+            reveal_in_explorer
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

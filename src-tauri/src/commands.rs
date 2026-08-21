@@ -78,6 +78,48 @@ pub fn app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
+/// 读取 Windows 系统强调色（DWM 注册表 AccentColor），返回 #RRGGBB
+#[tauri::command]
+pub fn get_accent_color() -> String {
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(out) = std::process::Command::new("reg")
+            .args(["query", "HKCU\\Software\\Microsoft\\Windows\\DWM", "/v", "AccentColor"])
+            .output()
+        {
+            let s = String::from_utf8_lossy(&out.stdout).to_string();
+            // 值形如 0x00A8A2E0（ABGR，ARGB 顺序）
+            if let Some(idx) = s.find("0x") {
+                if let Ok(v) = u32::from_str_radix(&s[idx + 2..idx + 10], 16) {
+                    let r = v & 0xFF;
+                    let g = (v >> 8) & 0xFF;
+                    let b = (v >> 16) & 0xFF;
+                    return format!("#{r:02x}{g:02x}{b:02x}");
+                }
+            }
+        }
+    }
+    // 默认 Windows 蓝
+    "#0078d4".to_string()
+}
+
+/// 用系统默认程序打开文件/目录
+#[tauri::command]
+pub fn open_path(path: String) -> Result<(), String> {
+    opener::open(&path).map_err(|e| e.to_string())
+}
+
+/// 在资源管理器中定位文件（选中）
+#[tauri::command]
+pub fn reveal_in_explorer(path: String) -> Result<(), String> {
+    std::process::Command::new("explorer.exe")
+        .arg("/select,")
+        .arg(&path)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// 默认缓存文件路径（应用数据目录）
 #[tauri::command]
 pub fn default_cache_path(app: AppHandle) -> Result<String, String> {

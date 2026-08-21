@@ -1,6 +1,6 @@
 [package]
 name = "filededup"
-version = "0.2.3"
+version = "0.3.0"
 description = "文件去重 - Windows 文件去重工具"
 edition = "2021"
 
@@ -17,4 +17,5 @@ tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 crossbeam-channel = "0.5"
+opener = "0.7"
 dedup-core = { path = "../crates/dedup-core" }

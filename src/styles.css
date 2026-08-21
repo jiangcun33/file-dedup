@@ -1,17 +1,121 @@
+/* ============================================================
+   文件去重 - Windows 11 Fluent 风格全局主题
+   配色跟随系统深浅模式（prefers-color-scheme），
+   强调色由 JS 运行时注入（--fd-accent，读取系统 Accent Color）。
+   云母质感以分层背景模拟（真实 Mica 为 Win11 专属）。
+   ============================================================ */
+
+:root {
+  /* 强调色：默认 Windows 蓝，运行时会用系统强调色覆盖 */
+  --fd-accent: #0078d4;
+  --fd-accent-soft: rgba(0, 120, 212, 0.1);
+  --fd-accent-strong: #005a9e;
+
+  /* 中性色（浅色模式） */
+  --fd-bg: #f3f3f3;
+  --fd-surface: #ffffff;
+  --fd-surface-2: #f9f9f9;
+  --fd-text: #1f1f1f;
+  --fd-text-2: #6e6e6e;
+  --fd-border: #e5e5e5;
+  --fd-border-strong: #c9c9c9;
+
+  /* 语义色（低饱和） */
+  --fd-success: #107c10;
+  --fd-success-soft: rgba(16, 124, 16, 0.1);
+  --fd-danger: #c42b1c;
+  --fd-danger-soft: rgba(196, 43, 28, 0.08);
+
+  /* 保留标签（浅蓝底深蓝字） */
+  --fd-keep-bg: #e5f1fb;
+  --fd-keep-text: #005fb8;
+
+  --fd-radius: 8px;
+  --fd-font: 'Segoe UI Variable Text', 'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', system-ui, sans-serif;
+  --fd-icon-font: 'Segoe Fluent Icons', 'Segoe MDL2 Assets';
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fd-accent: #4cc2ff;
+    --fd-accent-soft: rgba(76, 194, 255, 0.16);
+    --fd-accent-strong: #99d9ff;
+
+    --fd-bg: #1f1f1f;
+    --fd-surface: #2b2b2b;
+    --fd-surface-2: #2d2d2d;
+    --fd-text: #ffffff;
+    --fd-text-2: #a6a6a6;
+    --fd-border: #3c3c3c;
+    --fd-border-strong: #4a4a4a;
+
+    --fd-success: #6ccb5f;
+    --fd-success-soft: rgba(108, 203, 95, 0.14);
+    --fd-danger: #ff99a4;
+    --fd-danger-soft: rgba(255, 153, 164, 0.12);
+
+    --fd-keep-bg: #14334f;
+    --fd-keep-text: #9cd0ff;
+  }
+}
+
 html,
 body,
 #app {
   height: 100%;
   margin: 0;
-  font-family: 'Microsoft YaHei', 'Segoe UI', system-ui, sans-serif;
-  background: #f5f7fa;
-  color: #303133;
+  font-family: var(--fd-font);
+  background: var(--fd-bg);
+  color: var(--fd-text);
 }
 
-/* 页面容器：占满可用空间，内部滚动，不裁剪不遮挡 */
+/* ---------- Element Plus 主题映射 ---------- */
+:root {
+  --el-color-primary: var(--fd-accent);
+  --el-color-primary-light-3: var(--fd-accent);
+  --el-color-primary-light-5: var(--fd-accent-soft);
+  --el-color-primary-light-7: var(--fd-accent-soft);
+  --el-color-primary-light-8: var(--fd-accent-soft);
+  --el-color-primary-light-9: var(--fd-accent-soft);
+  --el-color-primary-dark-2: var(--fd-accent-strong);
+  --el-border-radius-base: var(--fd-radius);
+  --el-border-radius-small: 6px;
+  --el-border-radius-round: 20px;
+  --el-font-family: var(--fd-font);
+  --el-bg-color: var(--fd-surface);
+  --el-bg-color-overlay: var(--fd-surface);
+  --el-fill-color: var(--fd-surface-2);
+  --el-fill-color-light: var(--fd-surface-2);
+  --el-fill-color-lighter: var(--fd-surface-2);
+  --el-fill-color-extra-light: var(--fd-surface-2);
+  --el-fill-color-blank: var(--fd-surface);
+  --el-text-color-primary: var(--fd-text);
+  --el-text-color-regular: var(--fd-text);
+  --el-text-color-secondary: var(--fd-text-2);
+  --el-text-color-placeholder: var(--fd-text-2);
+  --el-text-color-disabled: var(--fd-text-2);
+  --el-border-color: var(--fd-border);
+  --el-border-color-light: var(--fd-border);
+  --el-border-color-lighter: var(--fd-border);
+  --el-border-color-extra-light: var(--fd-border);
+  --el-border-color-hover: var(--fd-border-strong);
+  --el-disabled-bg-color: var(--fd-surface-2);
+  --el-mask-color: rgba(0, 0, 0, 0.35);
+  --el-box-shadow-light: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+/* ---------- 模拟 Mica 的分层背景 ---------- */
+.fd-mica {
+  background:
+    radial-gradient(1100px 420px at 18% -8%, var(--fd-accent-soft), transparent 62%),
+    radial-gradient(900px 380px at 88% -12%, var(--fd-accent-soft), transparent 55%),
+    var(--fd-bg);
+}
+
+/* ---------- 页面容器 ---------- */
 .page {
   width: 100%;
-  padding: 16px;
+  padding: 20px;
   height: 100%;
   box-sizing: border-box;
   overflow: auto;
@@ -21,4 +125,412 @@ body,
   font-family: Consolas, 'Courier New', monospace;
   font-size: 12px;
   word-break: break-all;
+}
+
+/* ---------- Surface 卡片 ---------- */
+.fd-card {
+  background: var(--fd-surface);
+  border: 1px solid var(--fd-border);
+  border-radius: var(--fd-radius);
+  padding: 18px 20px;
+  margin-bottom: 20px;
+}
+.fd-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 14px;
+}
+.fd-card-header .fd-icon {
+  color: var(--fd-accent);
+  font-size: 15px;
+}
+
+/* ---------- 系统图标字体 ---------- */
+.fd-icon {
+  font-family: var(--fd-icon-font);
+  font-style: normal;
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* ---------- 按钮分级 ---------- */
+.el-button {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--fd-radius);
+  font-weight: 500;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+/* 次按钮：透明 + 浅灰边框，悬停变浅灰 */
+.el-button--default {
+  background: transparent;
+  border-color: var(--fd-border-strong);
+  color: var(--fd-text);
+}
+.el-button--default:hover {
+  background: var(--fd-surface-2);
+  border-color: var(--fd-border-strong);
+  color: var(--fd-text);
+}
+.el-button--default:active {
+  background: var(--fd-surface-2);
+}
+/* 主按钮：系统强调色 */
+.el-button--primary {
+  background: var(--fd-accent);
+  border-color: var(--fd-accent);
+}
+.el-button--primary:hover {
+  background: var(--fd-accent-strong);
+  border-color: var(--fd-accent-strong);
+}
+/* 危险按钮：常态次按钮 + 浅红文字边框，悬停变红填充白字 */
+.el-button--danger {
+  background: transparent;
+  border-color: var(--fd-danger);
+  color: var(--fd-danger);
+}
+.el-button--danger:hover {
+  background: var(--fd-danger);
+  border-color: var(--fd-danger);
+  color: #ffffff;
+}
+.el-button--danger:active {
+  background: var(--fd-danger);
+  border-color: var(--fd-danger);
+  color: #ffffff;
+}
+.el-button.is-plain.el-button--danger {
+  background: transparent;
+  border-color: var(--fd-danger);
+  color: var(--fd-danger);
+}
+.el-button.is-plain.el-button--danger:hover {
+  background: var(--fd-danger);
+  border-color: var(--fd-danger);
+  color: #ffffff;
+}
+/* 成功绿（低饱和，可释放空间等处） */
+.el-button--success {
+  background: var(--fd-success-soft);
+  border-color: transparent;
+  color: var(--fd-success);
+}
+.el-button--success:hover {
+  background: var(--fd-success);
+  color: #ffffff;
+}
+/* 文字链接按钮 */
+.el-button.is-link {
+  color: var(--fd-accent);
+}
+
+/* ---------- 开关（Win11 风格：圆角轨道 + 圆形滑块） ---------- */
+.el-switch__core {
+  width: 40px !important;
+  height: 20px !important;
+  border-radius: 10px !important;
+  background: #c6c6c6;
+  border-color: #c6c6c6;
+  transition: background 0.18s ease;
+}
+.el-switch__core::after {
+  width: 16px !important;
+  height: 16px !important;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+.el-switch.is-checked .el-switch__core {
+  background: var(--fd-accent) !important;
+  border-color: var(--fd-accent) !important;
+}
+
+/* ---------- 复选框（Win11 圆角方形） ---------- */
+.el-checkbox__inner {
+  border-radius: 4px;
+  width: 16px;
+  height: 16px;
+}
+.el-checkbox__input.is-checked .el-checkbox__inner {
+  background: var(--fd-accent);
+  border-color: var(--fd-accent);
+}
+.el-checkbox__input.is-focus .el-checkbox__inner {
+  border-color: var(--fd-accent);
+}
+
+/* ---------- 输入框 / 下拉框 ---------- */
+.el-input__wrapper,
+.el-input-number .el-input__wrapper,
+.el-select__wrapper {
+  border-radius: var(--fd-radius);
+  box-shadow: 0 0 0 1px var(--fd-border-strong) inset !important;
+  min-height: 32px;
+}
+.el-input__wrapper.is-focus,
+.el-input-number .el-input__wrapper.is-focus,
+.el-select__wrapper.is-focused {
+  box-shadow: 0 0 0 1px var(--fd-accent) inset !important;
+}
+.el-select__popper,
+.el-dropdown__popper,
+.el-popper {
+  border-radius: var(--fd-radius);
+}
+.el-select-dropdown__item.is-hovering {
+  background: var(--fd-surface-2);
+}
+
+/* ---------- 表格（去网格线，仅列头分割线） ---------- */
+.el-table {
+  --el-table-border-color: transparent;
+  --el-table-header-bg-color: transparent;
+  --el-table-row-hover-bg-color: var(--fd-surface-2);
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+}
+.el-table th.el-table__cell {
+  border-bottom: 1px solid var(--fd-border) !important;
+  font-weight: 600;
+  color: var(--fd-text-2);
+  background: transparent;
+}
+.el-table td.el-table__cell {
+  border-bottom: none !important;
+}
+.el-table__inner-wrapper::before {
+  display: none;
+}
+
+/* ---------- 保留标签（浅蓝底深蓝字） ---------- */
+.fd-keep-tag {
+  background: var(--fd-keep-bg);
+  color: var(--fd-keep-text);
+  border-radius: 6px;
+  padding: 1px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  margin-left: 6px;
+  white-space: nowrap;
+}
+
+/* ---------- 标题栏 ---------- */
+.fd-titlebar {
+  height: 40px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 4px 0 14px;
+  background: var(--fd-surface);
+  border-bottom: 1px solid var(--fd-border);
+  user-select: none;
+}
+.fd-titlebar .fd-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fd-text);
+}
+.fd-titlebar .fd-title-ver {
+  font-size: 11px;
+  color: var(--fd-text-2);
+  margin-left: 6px;
+  font-weight: 400;
+}
+.fd-winctrl {
+  -webkit-app-region: no-drag;
+  display: flex;
+  margin-left: auto;
+}
+.fd-winctrl button {
+  width: 46px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: var(--fd-text);
+  font-size: 10px;
+  font-family: var(--fd-font);
+  border-radius: 6px;
+  cursor: default;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s ease;
+}
+.fd-winctrl button:hover {
+  background: var(--fd-surface-2);
+}
+.fd-winctrl button.fd-close:hover {
+  background: #c42b1c;
+  color: #ffffff;
+}
+
+/* ---------- 下划线 Tab ---------- */
+.fd-tabs {
+  display: flex;
+  gap: 2px;
+}
+.fd-tab {
+  padding: 8px 14px;
+  font-size: 13px;
+  color: var(--fd-text-2);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  background: none;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  font-family: var(--fd-font);
+  transition: color 0.18s ease, border-color 0.18s ease;
+}
+.fd-tab:hover {
+  color: var(--fd-text);
+}
+.fd-tab.active {
+  color: var(--fd-accent);
+  border-bottom-color: var(--fd-accent);
+}
+
+/* ---------- 状态栏 ---------- */
+.fd-statusbar {
+  height: 28px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 0 16px;
+  background: var(--fd-surface);
+  border-top: 1px solid var(--fd-border);
+  font-size: 12px;
+  color: var(--fd-text-2);
+}
+.fd-statusbar .fd-sb-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.fd-statusbar .fd-icon {
+  font-size: 12px;
+}
+
+/* ---------- 右键菜单 ---------- */
+.fd-ctxmenu {
+  position: fixed;
+  z-index: 3000;
+  min-width: 190px;
+  background: var(--fd-surface);
+  border: 1px solid var(--fd-border);
+  border-radius: var(--fd-radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  padding: 4px;
+}
+.fd-ctxmenu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--fd-text);
+  transition: background 0.12s ease;
+}
+.fd-ctxmenu-item:hover {
+  background: var(--fd-surface-2);
+}
+.fd-ctxmenu-item.danger {
+  color: var(--fd-danger);
+}
+.fd-ctxmenu-item .fd-icon {
+  font-size: 13px;
+  color: var(--fd-text-2);
+}
+.fd-ctxmenu-item.danger .fd-icon {
+  color: var(--fd-danger);
+}
+
+/* ---------- 过渡动画 ---------- */
+.fd-fade-enter-active,
+.fd-fade-leave-active {
+  transition: opacity 0.15s ease;
+}
+.fd-fade-enter-from,
+.fd-fade-leave-to {
+  opacity: 0;
+}
+
+/* ---------- 统计信息条 ---------- */
+.fd-infobar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  background: var(--fd-surface);
+  border: 1px solid var(--fd-border);
+  border-radius: var(--fd-radius);
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+.fd-info-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--fd-text);
+}
+.fd-info-item .fd-icon {
+  font-size: 15px;
+  color: var(--fd-accent);
+}
+.fd-info-item .fd-num {
+  font-weight: 600;
+}
+.fd-info-item.fd-info-success .fd-icon {
+  color: var(--fd-success);
+}
+.fd-info-item.fd-info-danger .fd-icon {
+  color: var(--fd-danger);
+}
+.fd-infobar .spacer {
+  flex: 1;
+}
+
+/* 折叠器箭头旋转动画（el-collapse 自带，微调过渡） */
+.el-collapse-item__arrow {
+  transition: transform 0.18s ease !important;
+}
+
+/* ---------- 语义色标签（低饱和） ---------- */
+.el-tag--success {
+  background: var(--fd-success-soft);
+  border-color: transparent;
+  color: var(--fd-success);
+}
+.el-tag--warning {
+  background: rgba(251, 140, 0, 0.1);
+  border-color: transparent;
+  color: #b05e00;
+}
+.el-tag--danger {
+  background: var(--fd-danger-soft);
+  border-color: transparent;
+  color: var(--fd-danger);
+}
+.el-tag--primary {
+  background: var(--fd-accent-soft);
+  border-color: transparent;
+  color: var(--fd-accent);
+}
+.el-tag--info {
+  background: var(--fd-surface-2);
+  border-color: transparent;
+  color: var(--fd-text-2);
+}
+@media (prefers-color-scheme: dark) {
+  .el-tag--warning {
+    background: rgba(251, 140, 0, 0.16);
+    color: #ffb35c;
+  }
 }

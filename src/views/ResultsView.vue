@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, reactive, watch, onBeforeUnmount } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { invoke } from '@tauri-apps/api/core'
 import {
   applyAction,
   removeEmptyDirs,
@@ -16,6 +17,7 @@ import {
   type GroupKind,
   type ToolItem,
 } from '../api'
+import { resultState } from '../store'
 
 const props = defineProps<{ result: ScanResult }>()
 const emit = defineEmits<{ (e: 'back'): void }>()
@@ -105,6 +107,94 @@ function onHeaderDragend(prop: string, newWidth: number) {
     colWidths[prop] = newWidth
   }
 }
+
+// ---------- 右键菜单 ----------
+const ctxMenu = reactive<{ visible: boolean; x: number; y: number; gi: number; file: FileEntry | null }>({
+  visible: false,
+  x: 0,
+  y: 0,
+  gi: -1,
+  file: null,
+})
+function openCtxMenu(e: MouseEvent, g: DuplicateGroup, gi: number, file: FileEntry) {
+  e.preventDefault()
+  ctxMenu.x = Math.min(e.clientX, window.innerWidth - 200)
+  ctxMenu.y = Math.min(e.clientY, window.innerHeight - 160)
+  ctxMenu.gi = gi
+  ctxMenu.file = file
+  ctxMenu.visible = true
+}
+function closeCtxMenu() {
+  ctxMenu.visible = false
+}
+async function ctxOpen() {
+  const f = ctxMenu.file
+  closeCtxMenu()
+  if (!f) return
+  try {
+    await invoke('open_path', { path: f.path })
+  } catch (e) {
+    ElMessage.error(`打开失败：${e}`)
+  }
+}
+async function ctxReveal() {
+  const f = ctxMenu.file
+  closeCtxMenu()
+  if (!f) return
+  try {
+    await invoke('reveal_in_explorer', { path: f.path })
+  } catch (e) {
+    ElMessage.error(`定位失败：${e}`)
+  }
+}
+function ctxKeep() {
+  const f = ctxMenu.file
+  const gi = ctxMenu.gi
+  closeCtxMenu()
+  if (!f || gi < 0) return
+  // 设为保留：取消勾选该文件
+  const set = new Set(checked.value[gi] || [])
+  set.delete(f.path)
+  setChecked(gi, set)
+}
+async function ctxDelete() {
+  const f = ctxMenu.file
+  const gi = ctxMenu.gi
+  closeCtxMenu()
+  if (!f || gi < 0) return
+  const set = new Set(checked.value[gi] || [])
+  set.add(f.path)
+  setChecked(gi, set)
+  await executeBatch('delete')
+}
+function onGlobalClick() {
+  if (ctxMenu.visible) closeCtxMenu()
+}
+window.addEventListener('click', onGlobalClick)
+onBeforeUnmount(() => window.removeEventListener('click', onGlobalClick))
+
+// ---------- 状态栏联动（全部组，而非仅可见组） ----------
+const allCheckedCount = computed(() => {
+  let n = 0
+  groups.value.forEach((g, i) => {
+    const set = checked.value[i] || new Set()
+    g.files.forEach((f) => {
+      if (set.has(f.path)) n++
+    })
+  })
+  return n
+})
+watch([allCheckedCount, totalReclaimable], ([c, r]) => {
+  resultState.selectedCount = c
+  resultState.reclaimable = r
+})
+watch(
+  () => groups.value.length,
+  (n) => {
+    resultState.groupCount = n
+  },
+  { immediate: true },
+)
 
 // ---------- 全局选择（仅作用于当前筛选可见的分组；保留文件也可勾选） ----------
 function selectAllCopies() {
@@ -473,42 +563,32 @@ function isAllChecked(g: DuplicateGroup, i: number): boolean {
 
 <template>
   <div class="page results-page">
-    <el-card shadow="never" class="summary">
-      <div class="summary-row">
-        <el-tag size="large" type="primary">{{ groups.length }} 组重复</el-tag>
-        <el-tag size="large" type="danger">可释放 {{ formatBytes(totalReclaimable) }}</el-tag>
-        <el-tag size="large" type="info">{{ totalDupFiles }} 个副本文件</el-tag>
-        <el-tag size="large" type="info">扫描 {{ result.scanned_files }} 个文件</el-tag>
-        <el-tag size="large" type="success">缓存命中 {{ result.cache_hits }}</el-tag>
-        <el-tag size="large">耗时 {{ (result.elapsed_ms / 1000).toFixed(1) }}s</el-tag>
-        <div class="spacer" />
-        <el-button @click="emit('back')">← 重新扫描</el-button>
-      </div>
-    </el-card>
+    <!-- 统计信息条 -->
+    <div class="fd-infobar">
+      <span class="fd-info-item"><span class="fd-icon">&#xE8F1;</span>重复组 <b class="fd-num">{{ groups.length }}</b></span>
+      <span class="fd-info-item fd-info-success"><span class="fd-icon">&#xEA18;</span>可释放 <b class="fd-num">{{ formatBytes(totalReclaimable) }}</b></span>
+      <span class="fd-info-item"><span class="fd-icon">&#xE8C8;</span>副本文件 {{ totalDupFiles }}</span>
+      <span class="fd-info-item"><span class="fd-icon">&#xE7F4;</span>扫描 {{ result.scanned_files }} 个文件</span>
+      <span class="fd-info-item"><span class="fd-icon">&#xE895;</span>缓存命中 {{ result.cache_hits }}</span>
+      <span class="fd-info-item"><span class="fd-icon">&#xE823;</span>耗时 {{ (result.elapsed_ms / 1000).toFixed(1) }}s</span>
+      <div class="spacer" />
+      <el-button @click="emit('back')">重新扫描</el-button>
+    </div>
 
     <!-- 清理工具区 -->
-    <el-card v-if="tools.length > 0" shadow="never" class="toolbar-card">
-      <template #header>
-        <div class="card-header">
-          <span>🧹 清理工具（{{ tools.length }} 项，已勾选 <b class="hl">{{ checkedToolCount }}</b>）</span>
-          <div>
-            <el-button size="small" type="warning" plain :loading="pending" @click="deleteCheckedEmptyFolders">
-              删除勾选的空文件夹
-            </el-button>
-            <el-button size="small" type="danger" plain :loading="pending" @click="toolFileAction('trash')">
-              勾选文件移到回收站
-            </el-button>
-            <el-button size="small" type="danger" :loading="pending" @click="toolFileAction('delete')">
-              勾选文件永久删除
-            </el-button>
-          </div>
-        </div>
-      </template>
+    <section v-if="tools.length > 0" class="fd-card">
+      <div class="fd-card-header">
+        <span class="fd-icon">&#xE74D;</span>
+        <span>清理工具（{{ tools.length }} 项，已勾选 <b class="hl">{{ checkedToolCount }}</b>）</span>
+        <div class="spacer" />
+        <el-button size="small" @click="deleteCheckedEmptyFolders">删除空文件夹</el-button>
+        <el-button size="small" @click="toolFileAction('trash')">移到回收站</el-button>
+        <el-button size="small" type="danger" @click="toolFileAction('delete')">永久删除</el-button>
+      </div>
       <el-table
         :data="tools"
         size="small"
         :row-key="(t: ToolItem) => t.path"
-        border
         @header-dragend="(newWidth: number, _oldWidth: number, column: any) => onHeaderDragend(column.property, newWidth)"
       >
         <el-table-column width="48" align="center" :resizable="false">
@@ -528,40 +608,48 @@ function isAllChecked(g: DuplicateGroup, i: number): boolean {
             <span class="path-cell">{{ row.path }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="大小" prop="size" :width="colWidths.size">
+        <el-table-column label="大小" prop="size" :width="colWidths.size" align="right">
           <template #default="{ row }">{{ row.size ? formatBytes(row.size) : '-' }}</template>
         </el-table-column>
         <el-table-column label="说明" prop="detail" :width="colWidths.detail">
           <template #default="{ row }">{{ row.detail }}</template>
         </el-table-column>
       </el-table>
-    </el-card>
+    </section>
 
     <el-empty v-if="groups.length === 0 && tools.length === 0" description="没有发现重复文件或可清理项" />
     <el-empty v-else-if="groups.length === 0" description="没有重复文件了（清理工具结果见上方）" :image-size="60" />
 
     <template v-else>
-      <!-- 选择工具栏 -->
-      <el-card shadow="never" class="toolbar-card">
-        <div class="tool-row">
-          <span class="tool-label">选择：</span>
-          <el-button size="small" type="primary" plain @click="selectAllCopies">全选</el-button>
+      <!-- 操作工具栏：选择在左，核心操作居中，次要进「更多」 -->
+      <div class="fd-card opbar">
+        <div class="op-group">
+          <el-button size="small" @click="selectAllCopies">全选</el-button>
           <el-button size="small" @click="clearSelection">取消全选</el-button>
           <el-button size="small" @click="invertSelection">反选</el-button>
-          <el-divider direction="vertical" />
-          <el-button size="small" type="warning" plain @click="keepDialog = true">批量设置保留…</el-button>
-          <el-button size="small" type="success" plain @click="selectDialog = true">按条件批量选择…</el-button>
         </div>
-        <div class="tool-row">
-          <span class="tool-label">批量操作（已勾选 <b class="hl">{{ checkedCount }}</b> 个副本）：</span>
-          <el-button size="small" type="danger" plain :loading="pending" @click="executeBatch('trash')">移到回收站</el-button>
+        <el-divider direction="vertical" style="height: 20px" />
+        <div class="op-group">
+          <el-button size="small" @click="keepDialog = true">批量设置保留…</el-button>
+          <el-button size="small" @click="selectDialog = true">按条件批量选择…</el-button>
+        </div>
+        <div class="spacer" />
+        <div class="op-group">
+          <span class="tool-label">已勾选 <b class="hl">{{ checkedCount }}</b> 个</span>
+          <el-button size="small" :loading="pending" @click="executeBatch('trash')">移到回收站</el-button>
           <el-button size="small" type="danger" :loading="pending" @click="executeBatch('delete')">永久删除</el-button>
-          <el-button size="small" type="warning" plain :loading="pending" @click="executeBatch('hardlink')">硬链接替换</el-button>
-          <el-button size="small" :loading="pending" @click="executeBatch('move')">移动到…</el-button>
-          <el-button size="small" :loading="pending" @click="executeBatch('copy')">复制到…</el-button>
-          <span class="hint">硬链接替换时，每组文件链接到各自组的保留文件</span>
+          <el-dropdown trigger="click" @command="(c: string) => executeBatch(c as ActionKind)">
+            <el-button size="small" :loading="pending">更多<el-icon style="margin-left: 4px"><ArrowDown /></el-icon></el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="hardlink">硬链接替换</el-dropdown-item>
+                <el-dropdown-item command="move">移动到…</el-dropdown-item>
+                <el-dropdown-item command="copy">复制到…</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
-      </el-card>
+      </div>
 
       <div class="toolbar">
         <el-select v-model="kindFilter" size="small" style="width: 130px">
@@ -600,8 +688,8 @@ function isAllChecked(g: DuplicateGroup, i: number): boolean {
               :data="g.files"
               size="small"
               :row-key="(f: FileEntry) => f.path"
-              border
               @header-dragend="(newWidth: number, _oldWidth: number, column: any) => onHeaderDragend(column.property, newWidth)"
+              @row-contextmenu="(row: FileEntry, _column: any, e: MouseEvent) => openCtxMenu(e, g, i, row)"
             >
               <el-table-column width="48" align="center" :resizable="false">
                 <template #default="{ row }">
@@ -615,33 +703,39 @@ function isAllChecked(g: DuplicateGroup, i: number): boolean {
                 <template #default="{ row }">
                   <span class="path-cell">{{ row.path }}</span>
                   <!-- 未勾选的文件一律标记「保留」：勾选表示要处理（无标签），未勾选表示将保留 -->
-                  <el-tag
+                  <span
                     v-if="!checked[i]?.has(row.path)"
-                    size="small"
-                    type="warning"
-                    style="margin-left: 6px"
-                  >保留</el-tag>
+                    class="fd-keep-tag"
+                  >保留</span>
                 </template>
               </el-table-column>
-              <el-table-column label="大小" prop="size" :width="colWidths.size">
+              <el-table-column label="大小" prop="size" :width="colWidths.size" align="right">
                 <template #default="{ row }">{{ formatBytes(row.size) }}</template>
               </el-table-column>
-              <el-table-column label="修改时间" prop="modified" :width="colWidths.modified">
+              <el-table-column label="修改时间" prop="modified" :width="colWidths.modified" align="right">
                 <template #default="{ row }">{{ formatDate(row.modified) }}</template>
               </el-table-column>
-              <el-table-column label="创建时间" prop="created" :width="colWidths.created">
+              <el-table-column label="创建时间" prop="created" :width="colWidths.created" align="right">
                 <template #default="{ row }">{{ formatDate(row.created) }}</template>
               </el-table-column>
             </el-table>
           </div>
         </el-collapse-item>
       </el-collapse>
+
+      <!-- 右键菜单 -->
+      <div v-if="ctxMenu.visible" class="fd-ctxmenu" :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }">
+        <div class="fd-ctxmenu-item" @click="ctxOpen"><span class="fd-icon">&#xE8E5;</span>打开文件</div>
+        <div class="fd-ctxmenu-item" @click="ctxReveal"><span class="fd-icon">&#xE838;</span>打开所在目录</div>
+        <div class="fd-ctxmenu-item" @click="ctxKeep"><span class="fd-icon">&#xE74E;</span>保留（取消勾选）</div>
+        <div class="fd-ctxmenu-item danger" @click="ctxDelete"><span class="fd-icon">&#xE74D;</span>永久删除</div>
+      </div>
     </template>
 
     <!-- 批量设置保留对话框 -->
     <el-dialog v-model="keepDialog" title="批量设置保留文件" width="92%" style="max-width: 460px">
       <p class="dlg-desc">
-        设置保留文件：<b>目录类条件</b>将所有符合条件的文件都设为保留（不勾选）；<b>其他条件</b>每组重排，第一个为保留文件。
+        应用后先清除全部勾选：符合条件的文件保留（不勾选）、其余勾选；某组无符合条件的文件时整组保留。
       </p>
       <el-select v-model="keepCriterion" style="width: 100%">
         <el-option label="保留文件名最长" value="name_long" />
@@ -719,51 +813,33 @@ function isAllChecked(g: DuplicateGroup, i: number): boolean {
 .results-page {
   /* 自适应铺满：窗口缩放时卡片/表格随宽度伸展 */
 }
-.summary {
-  margin-bottom: 10px;
-}
-.summary-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
 .spacer {
   flex: 1;
 }
-.card-header {
+/* 操作工具栏：选择在左、核心操作居中、更多在右 */
+.opbar {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 16px;
 }
-.toolbar-card {
-  margin-bottom: 10px;
-}
-.tool-row {
+.op-group {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex-wrap: wrap;
-  padding: 4px 0;
 }
 .tool-label {
-  color: #606266;
+  color: var(--fd-text-2);
   font-size: 13px;
 }
 .hl {
-  color: #f56c6c;
-}
-.hint {
-  color: #909399;
-  font-size: 12px;
+  color: var(--fd-accent);
 }
 .toolbar {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 .group-title {
   display: flex;
@@ -779,13 +855,13 @@ function isAllChecked(g: DuplicateGroup, i: number): boolean {
   padding: 4px 8px 12px;
 }
 .dlg-desc {
-  color: #909399;
+  color: var(--fd-text-2);
   font-size: 12px;
   margin: 0 0 10px;
 }
 .unit {
   margin-left: 8px;
-  color: #909399;
+  color: var(--fd-text-2);
   font-size: 12px;
 }
 </style>
