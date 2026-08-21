@@ -44,6 +44,14 @@ function onScanned(r: ScanResult) {
   view.value = 'results'
 }
 
+// 每次开始扫描前，清除上一次的扫描结果
+function onScanStart() {
+  result.value = null
+  resultState.groupCount = 0
+  resultState.selectedCount = 0
+  resultState.reclaimable = 0
+}
+
 async function winMinimize() {
   await win.minimize()
 }
@@ -86,18 +94,32 @@ async function winClose() {
 
     <main class="app-main">
       <!-- v-show 保持视图常驻，切换回扫描页保留已选目录与选项 -->
-      <ScanView v-show="view === 'scan'" :result="result" @scanned="onScanned" />
-      <ResultsView v-if="result" v-show="view === 'results'" :result="result" />
+      <ScanView
+        v-show="view === 'scan'"
+        :result="result"
+        @scanned="onScanned"
+        @scan-start="onScanStart"
+      />
+      <ResultsView v-if="result" v-show="view === 'results'" :result="result" @back="switchView('scan')" />
     </main>
 
-    <!-- 底部状态栏 -->
+    <!-- 底部状态栏（含扫描进度条） -->
     <footer class="fd-statusbar">
       <span class="fd-sb-item">
         <span class="fd-icon">&#xE7F4;</span>
-        <template v-if="scanState.scanning">正在扫描：{{ scanState.progressMsg }}</template>
+        <template v-if="scanState.scanning">{{ scanState.progressMsg }}</template>
         <template v-else-if="view === 'results'">扫描完成</template>
         <template v-else>就绪</template>
       </span>
+      <el-progress
+        v-if="scanState.scanning"
+        :percentage="scanState.progressPct"
+        :stroke-width="6"
+        :show-text="false"
+        class="sb-progress"
+      />
+      <span v-if="scanState.scanning" class="fd-sb-item">{{ scanState.progressPct }}%</span>
+      <span class="spacer" />
       <span class="fd-sb-item">
         <span class="fd-icon">&#xE8F1;</span>
         <span>已选 <b class="fd-num">{{ resultState.selectedCount }}</b> 个文件</span>
@@ -129,5 +151,13 @@ async function winClose() {
 }
 .fd-num {
   color: var(--fd-text);
+}
+.spacer {
+  flex: 1;
+}
+.sb-progress {
+  flex: 1;
+  max-width: 320px;
+  margin: 0 12px;
 }
 </style>

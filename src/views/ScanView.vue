@@ -13,7 +13,7 @@ import {
 } from '../api'
 import { scanState } from '../store'
 
-const emit = defineEmits<{ (e: 'scanned', r: ScanResult): void }>()
+const emit = defineEmits<{ (e: 'scanned', r: ScanResult): void; (e: 'scan-start'): void }>()
 defineProps<{ result: ScanResult | null }>()
 
 const paths = ref<string[]>([])
@@ -97,6 +97,8 @@ async function startScan() {
     ElMessage.warning('请先添加要扫描的目录')
     return
   }
+  // 先清除上一次的扫描结果
+  emit('scan-start')
   scanState.scanning = true
   scanState.progressMsg = '准备扫描...'
   progressPct.value = 0
