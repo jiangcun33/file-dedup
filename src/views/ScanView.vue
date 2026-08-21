@@ -163,7 +163,7 @@ async function stopScan() {
         <span class="fd-icon">&#xE8B7;</span>
         <span>扫描目录</span>
         <div class="spacer" />
-        <el-button type="primary" plain @click="addPath">＋ 添加目录</el-button>
+        <el-button class="fd-add-btn" @click="addPath">＋ 添加目录</el-button>
       </div>
       <el-empty v-if="paths.length === 0" description="尚未添加目录" :image-size="60" />
       <div v-else class="dir-list">
@@ -329,11 +329,14 @@ async function stopScan() {
 
 <style scoped>
 .scan-page {
-  max-width: 860px;
-  margin: 0 auto;
+  /* 自适应铺满：窗口缩放时卡片随宽度伸展 */
 }
 .spacer {
   flex: 1;
+}
+.fd-add-btn {
+  color: var(--fd-accent) !important;
+  font-weight: 600;
 }
 .unit {
   margin-left: 8px;

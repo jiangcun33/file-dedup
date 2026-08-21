@@ -305,10 +305,27 @@ body,
   display: none;
 }
 
+/* 组与组之间的横线分隔 */
+.el-table .fd-group-sep td.el-table__cell {
+  border-top: 1px solid var(--fd-border-strong) !important;
+}
+
 /* ---------- 保留标签（浅蓝底深蓝字） ---------- */
 .fd-keep-tag {
   background: var(--fd-keep-bg);
   color: var(--fd-keep-text);
+  border-radius: 6px;
+  padding: 1px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  margin-left: 6px;
+  white-space: nowrap;
+}
+
+/* ---------- 删除标签（浅红底红字） ---------- */
+.fd-del-tag {
+  background: var(--fd-danger-soft);
+  color: var(--fd-danger);
   border-radius: 6px;
   padding: 1px 8px;
   font-size: 12px;
@@ -370,11 +387,13 @@ body,
 /* ---------- 下划线 Tab ---------- */
 .fd-tabs {
   display: flex;
-  gap: 2px;
+  justify-content: center;
+  gap: 24px;
 }
 .fd-tab {
-  padding: 8px 14px;
-  font-size: 13px;
+  padding: 12px 18px;
+  font-size: 15px;
+  font-weight: 700;
   color: var(--fd-text-2);
   cursor: pointer;
   border-bottom: 2px solid transparent;

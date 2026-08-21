@@ -96,8 +96,10 @@ function setChecked(i: number, set: Set<string>) {
 
 // 共享表格列宽：拖动任意一张表的列宽，所有表同步调整
 const colWidths = reactive<Record<string, number>>({
+  group: 70,
   path: 380,
-  size: 110,
+  size: 100,
+  type: 80,
   modified: 150,
   created: 150,
   detail: 200,
@@ -106,6 +108,53 @@ function onHeaderDragend(prop: string, newWidth: number) {
   if (prop && newWidth > 30) {
     colWidths[prop] = newWidth
   }
+}
+
+// 统一表格：把所有（筛选可见的）重复文件平铺成行
+const flatRows = computed(() => {
+  const rows: any[] = []
+  visibleGroups.value.forEach(({ g, i }) => {
+    g.files.forEach((file, idx) => {
+      rows.push({
+        g,
+        gi: i,
+        file,
+        isRef: idx === 0,
+        __firstOfGroup: idx === 0,
+      })
+    })
+  })
+  return rows
+})
+// 组列合并：同组的行合并为一个单元格（第一列，含「组 N」切换按钮 + 类型徽章）
+function groupSpan({ row, columnIndex }: any) {
+  if (columnIndex === 0) {
+    const count = flatRows.value.filter((r: any) => r.gi === row.gi).length
+    if (row.__firstOfGroup) {
+      return { rowspan: count, colspan: 1 }
+    }
+    return { rowspan: 0, colspan: 0 }
+  }
+}
+// 每组的首行加横线分隔（组与组之间）
+function groupRowClass({ row }: any) {
+  return row.__firstOfGroup ? 'fd-group-sep' : ''
+}
+// 「组 N」按钮：点击全选当前组（变蓝），再点击全不选（变白）
+function toggleGroup(g: DuplicateGroup, gi: number) {
+  const set = new Set<string>()
+  if (!isAllChecked(g, gi)) {
+    g.files.forEach((f) => set.add(f.path))
+  }
+  setChecked(gi, set)
+}
+
+// 文件类型（扩展名大写；无扩展名显示「文件」）
+function fileType(p: string): string {
+  const name = fileName(p)
+  const idx = name.lastIndexOf('.')
+  if (idx <= 0 || idx === name.length - 1) return '文件'
+  return name.slice(idx + 1).toUpperCase()
 }
 
 // ---------- 右键菜单 ----------
@@ -660,68 +709,67 @@ function isAllChecked(g: DuplicateGroup, i: number): boolean {
           <el-option label="音乐重复" value="music_tag" />
           <el-option label="相似视频" value="similar_video" />
         </el-select>
-        <el-button size="small" @click="activeNames = visibleGroups.map(({ i }) => String(i))">全部展开</el-button>
-        <el-button size="small" @click="activeNames = []">全部折叠</el-button>
+        <span class="tool-label">共 {{ flatRows.length }} 个文件</span>
       </div>
 
       <el-empty v-if="visibleGroups.length === 0" description="当前筛选条件下没有分组" :image-size="60" />
 
-      <el-collapse v-model="activeNames">
-        <el-collapse-item v-for="{ g, i } in visibleGroups" :key="g.files[0]?.path + i" :name="String(i)">
-          <template #title>
-            <div class="group-title">
+      <!-- 统一表格：所有重复文件平铺展示，组列合并显示，列宽可拖动全局同步 -->
+      <div class="group-body">
+        <el-table
+          :data="flatRows"
+          size="small"
+          :row-key="(r: any) => r.file.path"
+          :span-method="groupSpan"
+          :row-class-name="groupRowClass"
+          @header-dragend="(newWidth: number, _oldWidth: number, column: any) => onHeaderDragend(column.property, newWidth)"
+          @row-contextmenu="(row: any, _column: any, e: MouseEvent) => openCtxMenu(e, row.g, row.gi, row.file)"
+        >
+          <!-- 组列（第一列）：合并单元格 + 「组 N」切换按钮（点击全选/取消） -->
+          <el-table-column label="组" prop="group" :width="colWidths.group" align="center">
+            <template #default="{ row }">
+              <template v-if="row.__firstOfGroup">
+                <button
+                  class="grp-toggle"
+                  :class="{ on: isAllChecked(row.g, row.gi) }"
+                  @click="toggleGroup(row.g, row.gi)"
+                >组 {{ row.gi + 1 }}</button>
+                <div class="grp-kind">
+                  <el-tag size="small" :type="kindInfo(row.g.kind).type">{{ kindInfo(row.g.kind).text }}</el-tag>
+                </div>
+              </template>
+            </template>
+          </el-table-column>
+          <el-table-column width="44" align="center" :resizable="false">
+            <template #default="{ row }">
               <el-checkbox
-                :model-value="isAllChecked(g, i)"
-                @change="(v: boolean) => toggleAll(g, i, !!v)"
-                @click.stop
+                :model-value="checked[row.gi]?.has(row.file.path) || false"
+                @change="(v: boolean) => onCheck(row.g, row.gi, row.file.path, !!v)"
               />
-              <span class="gt-count">{{ g.files.length }} 个文件</span>
-              <el-tag size="small" :type="kindInfo(g.kind).type">{{ kindInfo(g.kind).text }}</el-tag>
-              <el-tag v-if="g.kind === 'exact'" size="small" type="info">每个 {{ formatBytes(g.file_size) }}</el-tag>
-              <el-tag v-else size="small" type="info">大小不等</el-tag>
-              <el-tag size="small" type="success">可释放 {{ formatBytes(g.reclaimable) }}</el-tag>
-            </div>
-          </template>
-
-          <div class="group-body">
-            <el-table
-              :data="g.files"
-              size="small"
-              :row-key="(f: FileEntry) => f.path"
-              @header-dragend="(newWidth: number, _oldWidth: number, column: any) => onHeaderDragend(column.property, newWidth)"
-              @row-contextmenu="(row: FileEntry, _column: any, e: MouseEvent) => openCtxMenu(e, g, i, row)"
-            >
-              <el-table-column width="48" align="center" :resizable="false">
-                <template #default="{ row }">
-                  <el-checkbox
-                    :model-value="checked[i]?.has(row.path) || false"
-                    @change="(v: boolean) => onCheck(g, i, row.path, !!v)"
-                  />
-                </template>
-              </el-table-column>
-              <el-table-column label="文件路径" prop="path" :width="colWidths.path">
-                <template #default="{ row }">
-                  <span class="path-cell">{{ row.path }}</span>
-                  <!-- 未勾选的文件一律标记「保留」：勾选表示要处理（无标签），未勾选表示将保留 -->
-                  <span
-                    v-if="!checked[i]?.has(row.path)"
-                    class="fd-keep-tag"
-                  >保留</span>
-                </template>
-              </el-table-column>
-              <el-table-column label="大小" prop="size" :width="colWidths.size" align="right">
-                <template #default="{ row }">{{ formatBytes(row.size) }}</template>
-              </el-table-column>
-              <el-table-column label="修改时间" prop="modified" :width="colWidths.modified" align="right">
-                <template #default="{ row }">{{ formatDate(row.modified) }}</template>
-              </el-table-column>
-              <el-table-column label="创建时间" prop="created" :width="colWidths.created" align="right">
-                <template #default="{ row }">{{ formatDate(row.created) }}</template>
-              </el-table-column>
-            </el-table>
-          </div>
-        </el-collapse-item>
-      </el-collapse>
+            </template>
+          </el-table-column>
+          <el-table-column label="文件路径" prop="path" :width="colWidths.path">
+            <template #default="{ row }">
+              <span class="path-cell">{{ row.file.path }}</span>
+              <!-- 未勾选 → 蓝色「保留」；已勾选 → 红色「删除」 -->
+              <span v-if="!checked[row.gi]?.has(row.file.path)" class="fd-keep-tag">保留</span>
+              <span v-else class="fd-del-tag">删除</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="大小" prop="size" :width="colWidths.size" align="right">
+            <template #default="{ row }">{{ formatBytes(row.file.size) }}</template>
+          </el-table-column>
+          <el-table-column label="类型" prop="type" :width="colWidths.type">
+            <template #default="{ row }">{{ fileType(row.file.path) }}</template>
+          </el-table-column>
+          <el-table-column label="修改时间" prop="modified" :width="colWidths.modified" align="right">
+            <template #default="{ row }">{{ formatDate(row.file.modified) }}</template>
+          </el-table-column>
+          <el-table-column label="创建时间" prop="created" :width="colWidths.created" align="right">
+            <template #default="{ row }">{{ formatDate(row.file.created) }}</template>
+          </el-table-column>
+        </el-table>
+      </div>
 
       <!-- 右键菜单 -->
       <div v-if="ctxMenu.visible" class="fd-ctxmenu" :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }">
@@ -827,6 +875,11 @@ function isAllChecked(g: DuplicateGroup, i: number): boolean {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex: none;
+  white-space: nowrap;
+}
+.op-group .el-button {
+  flex-shrink: 0;
 }
 .tool-label {
   color: var(--fd-text-2);
@@ -852,7 +905,30 @@ function isAllChecked(g: DuplicateGroup, i: number): boolean {
   font-weight: 600;
 }
 .group-body {
-  padding: 4px 8px 12px;
+  padding: 4px 0 12px;
+}
+.grp-toggle {
+  border: 1px solid var(--fd-border-strong);
+  background: var(--fd-surface);
+  color: var(--fd-text);
+  border-radius: var(--fd-radius);
+  padding: 3px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--fd-font);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.grp-toggle:hover {
+  background: var(--fd-surface-2);
+}
+.grp-toggle.on {
+  background: var(--fd-accent);
+  border-color: var(--fd-accent);
+  color: #ffffff;
+}
+.grp-kind {
+  margin-top: 6px;
 }
 .dlg-desc {
   color: var(--fd-text-2);
