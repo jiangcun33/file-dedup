@@ -6,7 +6,8 @@ import { open } from '@tauri-apps/plugin-dialog'
 // ---------- 类型 ----------
 export type KeepStrategy = 'keep_newest' | 'keep_oldest' | 'keep_largest' | 'keep_first'
 export type ActionKind = 'trash' | 'delete' | 'hardlink' | 'move' | 'copy'
-export type GroupKind = 'exact' | 'fuzzy_name' | 'similar_image'
+export type GroupKind = 'exact' | 'fuzzy_name' | 'similar_image' | 'music_tag' | 'similar_video'
+export type ToolKind = 'empty_folder' | 'big_file' | 'temp_file'
 
 export interface ScanOptions {
   paths: string[]
@@ -26,6 +27,15 @@ export interface ScanOptions {
   fuzzy_same_dir_only: boolean
   similar_images: boolean
   image_threshold: number
+  music_dedup: boolean
+  music_threshold: number
+  tool_empty_folders: boolean
+  tool_big_files: boolean
+  tool_big_files_count: number
+  tool_temp_files: boolean
+  similar_videos: boolean
+  video_threshold: number
+  ffmpeg_path: string
 }
 
 export interface FileEntry {
@@ -42,8 +52,18 @@ export interface DuplicateGroup {
   reclaimable: number
 }
 
+export interface ToolItem {
+  kind: ToolKind
+  path: string
+  size: number
+  modified: number
+  created: number
+  detail: string
+}
+
 export interface ScanResult {
   groups: DuplicateGroup[]
+  tools: ToolItem[]
   scanned_files: number
   scanned_bytes: number
   cache_hits: number
@@ -84,6 +104,9 @@ export function cancelScan(): Promise<void> {
 }
 export function applyAction(req: BatchActionRequest): Promise<ActionResult[]> {
   return invoke('apply_action', { req })
+}
+export function removeEmptyDirs(paths: string[]): Promise<ActionResult[]> {
+  return invoke('remove_empty_dirs', { paths })
 }
 export function clearCache(path: string): Promise<number> {
   return invoke('clear_cache', { path })

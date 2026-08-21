@@ -95,6 +95,9 @@ pub fn find_duplicates(
 ) -> Result<(Vec<DuplicateGroup>, u64), String> {
     let total = entries.len() as u64;
 
+    // 缓存批量写入事务（性能优化：避免逐条自动提交）
+    let batch = cache.as_mut().map(|c| c.begin_batch().is_ok()).unwrap_or(false);
+
     // ---- 阶段1：按大小分组 ----
     let mut by_size: HashMap<u64, Vec<FileEntry>> = HashMap::new();
     for e in entries {
@@ -219,6 +222,9 @@ pub fn find_duplicates(
     groups.sort_by(|a, b| b.reclaimable.cmp(&a.reclaimable));
     send(progress_tx, "hash", 4, 4, &format!("完成：找到 {} 组重复", groups.len()));
 
+    if batch {
+        let _ = cache.as_mut().map(|c| c.end_batch());
+    }
     let hits = cache.as_ref().map(|c| c.hits).unwrap_or(0);
     Ok((groups, hits))
 }

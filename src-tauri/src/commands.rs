@@ -51,6 +51,12 @@ pub fn apply_action(req: BatchActionRequest) -> Vec<ActionResult> {
     dedup_core::action::apply_batch_action(&req)
 }
 
+/// 删除空文件夹（含安全校验）
+#[tauri::command]
+pub fn remove_empty_dirs(paths: Vec<String>) -> Vec<ActionResult> {
+    dedup_core::action::remove_empty_dirs(&paths)
+}
+
 /// 清空哈希缓存，返回删除的条目数
 #[tauri::command]
 pub fn clear_cache(path: String) -> Result<u64, String> {

@@ -149,3 +149,42 @@ pub fn apply_action(req: &ActionRequest) -> Vec<ActionResult> {
         dest_dir: req.dest_dir.clone(),
     })
 }
+
+/// 删除空文件夹（操作前校验目录仍存在且确为空）
+pub fn remove_empty_dirs(paths: &[String]) -> Vec<ActionResult> {
+    paths
+        .par_iter()
+        .map(|p| {
+            let path = p.clone();
+            let fail = |msg: String| ActionResult { path: path.clone(), ok: false, message: msg };
+            let dir = Path::new(p);
+            if !dir.exists() {
+                return fail("目录已不存在".to_string());
+            }
+            if !dir.is_dir() {
+                return fail("不再是目录".to_string());
+            }
+            // 校验确实为空（忽略 desktop.ini 等系统文件）
+            let mut has_real = false;
+            if let Ok(rd) = std::fs::read_dir(dir) {
+                for entry in rd.flatten() {
+                    let name = entry.file_name().to_string_lossy().into_owned();
+                    let ign = ["desktop.ini", "thumbs.db", ".ds_store"]
+                        .iter()
+                        .any(|x| x.eq_ignore_ascii_case(&name));
+                    if !ign {
+                        has_real = true;
+                        break;
+                    }
+                }
+            }
+            if has_real {
+                return fail("目录不为空，已跳过".to_string());
+            }
+            match std::fs::remove_dir(dir) {
+                Ok(()) => ActionResult { path, ok: true, message: "已删除空文件夹".to_string() },
+                Err(e) => fail(format!("删除失败: {e}")),
+            }
+        })
+        .collect()
+}

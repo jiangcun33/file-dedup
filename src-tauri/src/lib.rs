@@ -29,6 +29,7 @@ pub fn run() {
             run_scan,
             cancel_scan,
             apply_action,
+            remove_empty_dirs,
             clear_cache,
             get_cache_stats,
             default_cache_path

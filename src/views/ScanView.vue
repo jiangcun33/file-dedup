@@ -32,6 +32,16 @@ const fuzzyThreshold = ref(80)
 const fuzzySameDir = ref(true)
 const similarImages = ref(false)
 const imageThreshold = ref(10)
+// M3：音乐去重 + 清理工具
+const musicDedup = ref(false)
+const musicThreshold = ref(80)
+const toolEmptyFolders = ref(false)
+const toolBigFiles = ref(false)
+const toolBigFilesCount = ref(50)
+const toolTempFiles = ref(false)
+// M4：相似视频
+const similarVideos = ref(false)
+const videoThreshold = ref(10)
 const scanning = ref(false)
 const progressMsg = ref('')
 const progressPct = ref(0)
@@ -106,6 +116,15 @@ async function startScan() {
     fuzzy_same_dir_only: fuzzySameDir.value,
     similar_images: similarImages.value,
     image_threshold: imageThreshold.value,
+    music_dedup: musicDedup.value,
+    music_threshold: musicThreshold.value,
+    tool_empty_folders: toolEmptyFolders.value,
+    tool_big_files: toolBigFiles.value,
+    tool_big_files_count: toolBigFilesCount.value,
+    tool_temp_files: toolTempFiles.value,
+    similar_videos: similarVideos.value,
+    video_threshold: videoThreshold.value,
+    ffmpeg_path: '',
   }
   try {
     const result = await runScan(options)
@@ -220,6 +239,61 @@ async function stopScan() {
         <el-form-item>
           <span class="hint">⚠️ 模糊匹配与相似图片结果为「建议项」，可能存在误报，执行删除等操作前请人工确认。</span>
         </el-form-item>
+      </el-form>
+    </el-card>
+
+    <el-card shadow="never" class="block">
+      <template #header><span>④ 音乐去重（M3）</span></template>
+      <el-form label-width="110px" size="default">
+        <el-form-item label="音乐标签去重">
+          <el-switch v-model="musicDedup" />
+          <span class="unit">按艺术家+标题标签找重复歌曲（自动扫描 mp3/flac/m4a/ogg 等）</span>
+        </el-form-item>
+        <template v-if="musicDedup">
+          <el-form-item label="相似度阈值">
+            <el-slider v-model="musicThreshold" :min="60" :max="99" :step="1" show-input style="max-width: 260px" />
+            <span class="unit">{{ musicThreshold }}%</span>
+          </el-form-item>
+        </template>
+      </el-form>
+    </el-card>
+
+    <el-card shadow="never" class="block">
+      <template #header><span>⑤ 清理工具（M3）</span></template>
+      <el-form label-width="110px" size="default">
+        <el-form-item label="空文件夹">
+          <el-switch v-model="toolEmptyFolders" />
+          <span class="unit">查找只含空子目录的目录（忽略 desktop.ini 等系统文件）</span>
+        </el-form-item>
+        <el-form-item label="大文件">
+          <el-switch v-model="toolBigFiles" />
+          <span class="unit">列出最大的</span>
+          <el-input-number v-model="toolBigFilesCount" :min="1" :max="500" size="small" style="width: 90px; margin-left: 6px" />
+          <span class="unit">个文件</span>
+        </el-form-item>
+        <el-form-item label="临时文件">
+          <el-switch v-model="toolTempFiles" />
+          <span class="unit">*.tmp / ~$ 锁定文件 / 临时目录中的文件</span>
+        </el-form-item>
+      </el-form>
+    </el-card>
+
+    <el-card shadow="never" class="block">
+      <template #header><span>⑥ 相似视频（M4）</span></template>
+      <el-form label-width="110px" size="default">
+        <el-form-item label="相似视频查找">
+          <el-switch v-model="similarVideos" />
+          <span class="unit">FFmpeg 抽帧 + 帧感知哈希，识别不同分辨率/码率/水印的视频（自动扫描 mp4/mkv/avi 等）</span>
+        </el-form-item>
+        <template v-if="similarVideos">
+          <el-form-item label="相似度阈值">
+            <el-slider v-model="videoThreshold" :min="1" :max="20" :step="1" show-input style="max-width: 260px" />
+            <span class="unit">帧汉明距离 ≤ {{ videoThreshold }} / 63（越小越严格）</span>
+          </el-form-item>
+          <el-form-item>
+            <span class="hint">需要 ffmpeg.exe：请放到应用目录（或系统 PATH 中）。首次扫描较慢，之后会缓存视频签名。</span>
+          </el-form-item>
+        </template>
       </el-form>
     </el-card>
 

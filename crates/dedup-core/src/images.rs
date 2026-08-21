@@ -42,20 +42,47 @@ fn dct1d(input: &[f64], out: &mut [f64]) {
     }
 }
 
-/// 计算图片的 64 位感知哈希；解码失败返回 None
-///
-/// 算法：32×32 灰度 → 二维 DCT → 取 8×8 低频块 → 去掉 DC（亮度）项后，
-/// 以其余 63 个 AC 系数的均值为阈值转成位签名。对亮度偏移与微小扰动鲁棒，
-/// 且能区分平滑但不同的图像。
+/// 计算图片文件的感知哈希；解码失败返回 None
 pub fn phash(path: &str) -> Option<u64> {
     let img = image::open(path).ok()?;
     let small = img
         .resize_exact(32, 32, image::imageops::FilterType::Triangle)
         .to_luma8();
+    let mut px = vec![0u8; 32 * 32];
+    for y in 0..32 {
+        for x in 0..32 {
+            px[y * 32 + x] = small.get_pixel(x as u32, y as u32)[0];
+        }
+    }
+    Some(phash_gray(&px, 32, 32))
+}
+
+/// 对任意尺寸的灰度像素数据计算感知哈希（内部盒式缩放到 32×32）
+///
+/// 算法：灰度 → 二维 DCT → 取 8×8 低频块 → 去掉 DC（亮度）项后，
+/// 以其余 63 个 AC 系数的均值为阈值转成位签名。对亮度偏移与微小扰动鲁棒，
+/// 且能区分平滑但不同的图像。视频抽帧哈希复用此函数。
+pub fn phash_gray(pixels: &[u8], w: u32, h: u32) -> u64 {
+    // 盒式缩放到 32×32
     let mut m = [[0f64; 32]; 32];
     for y in 0..32 {
         for x in 0..32 {
-            m[y][x] = small.get_pixel(x as u32, y as u32)[0] as f64;
+            let x0 = (x as u64 * w as u64) / 32;
+            let x1 = (((x as u64 + 1) * w as u64) / 32).max(x0 + 1);
+            let y0 = (y as u64 * h as u64) / 32;
+            let y1 = (((y as u64 + 1) * h as u64) / 32).max(y0 + 1);
+            let mut sum = 0u64;
+            let mut n = 0u64;
+            for sy in y0..y1 {
+                for sx in x0..x1 {
+                    let idx = (sy * w as u64 + sx) as usize;
+                    if idx < pixels.len() {
+                        sum += pixels[idx] as u64;
+                        n += 1;
+                    }
+                }
+            }
+            m[y][x] = if n > 0 { sum as f64 / n as f64 } else { 0.0 };
         }
     }
     // 行方向 DCT
@@ -93,7 +120,7 @@ pub fn phash(path: &str) -> Option<u64> {
             hash |= 1u64 << i;
         }
     }
-    Some(hash)
+    hash
 }
 
 /// 简单 BK 树：节点存哈希，边按汉明距离

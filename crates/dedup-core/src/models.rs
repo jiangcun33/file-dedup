@@ -44,6 +44,36 @@ pub struct ScanOptions {
     /// 相似图片感知哈希汉明距离阈值（0-64）
     #[serde(default = "default_image_threshold")]
     pub image_threshold: u32,
+    // ---- M3：音乐去重 ----
+    /// 是否启用音乐标签去重
+    #[serde(default)]
+    pub music_dedup: bool,
+    /// 音乐标签匹配相似度阈值（0-100）
+    #[serde(default = "default_fuzzy_threshold")]
+    pub music_threshold: u8,
+    // ---- M3：附加清理工具 ----
+    /// 是否查找空文件夹
+    #[serde(default)]
+    pub tool_empty_folders: bool,
+    /// 是否列出大文件
+    #[serde(default)]
+    pub tool_big_files: bool,
+    /// 大文件列表数量上限
+    #[serde(default = "default_big_count")]
+    pub tool_big_files_count: usize,
+    /// 是否列出临时文件
+    #[serde(default)]
+    pub tool_temp_files: bool,
+    // ---- M4：相似视频 ----
+    /// 是否启用相似视频查找
+    #[serde(default)]
+    pub similar_videos: bool,
+    /// 视频帧感知哈希汉明距离阈值（0-64）
+    #[serde(default = "default_video_threshold")]
+    pub video_threshold: u32,
+    /// ffmpeg 可执行文件路径（空 = 自动查找应用目录/PATH）
+    #[serde(default)]
+    pub ffmpeg_path: String,
 }
 
 fn default_fuzzy_threshold() -> u8 {
@@ -52,11 +82,17 @@ fn default_fuzzy_threshold() -> u8 {
 fn default_image_threshold() -> u32 {
     10
 }
+fn default_video_threshold() -> u32 {
+    10
+}
 fn default_true() -> bool {
     true
 }
+fn default_big_count() -> usize {
+    50
+}
 
-/// 分组类型：精确内容重复 / 文件名模糊匹配 / 相似图片
+/// 分组类型：精确内容重复 / 文件名模糊匹配 / 相似图片 / 音乐 / 相似视频
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GroupKind {
@@ -66,6 +102,38 @@ pub enum GroupKind {
     FuzzyName,
     /// 感知哈希相似图片（需人工确认）
     SimilarImage,
+    /// 音乐标签去重（需人工确认）
+    MusicTag,
+    /// 相似视频（需人工确认）
+    SimilarVideo,
+}
+
+/// 附加清理工具的类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolKind {
+    /// 空文件夹
+    EmptyFolder,
+    /// 大文件
+    BigFile,
+    /// 临时文件
+    TempFile,
+}
+
+/// 附加清理工具的结果条目（非重复分组）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolItem {
+    pub kind: ToolKind,
+    /// 完整路径
+    pub path: String,
+    /// 大小（空文件夹为 0）
+    pub size: u64,
+    /// 修改时间（Unix 秒，空文件夹为 0）
+    pub modified: u64,
+    /// 创建时间（Unix 秒，可能为 0）
+    pub created: u64,
+    /// 说明文字
+    pub detail: String,
 }
 
 /// 保留策略：决定每组中谁是"参考文件"（不会被删除）
@@ -144,6 +212,9 @@ impl DuplicateGroup {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanResult {
     pub groups: Vec<DuplicateGroup>,
+    /// 附加清理工具结果（空文件夹/大文件/临时文件）
+    #[serde(default)]
+    pub tools: Vec<ToolItem>,
     pub scanned_files: u64,
     pub scanned_bytes: u64,
     pub cache_hits: u64,

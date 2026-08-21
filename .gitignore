@@ -15,6 +15,9 @@ src-tauri/gen/
 # ---- 本地工具链 ----
 .toolchain/
 
+# ---- 第三方运行时二进制（构建时手动放入） ----
+src-tauri/resources/ffmpeg.exe
+
 # ---- 调研资料（第三方源码与归档，不入库） ----
 research/repos/
 

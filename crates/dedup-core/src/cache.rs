@@ -36,9 +36,54 @@ impl HashCache {
                 mtime INTEGER NOT NULL,
                 phash TEXT,
                 scanned_at INTEGER NOT NULL
-            );",
+            );
+            CREATE TABLE IF NOT EXISTS video_cache (
+                path TEXT PRIMARY KEY,
+                size INTEGER NOT NULL,
+                mtime INTEGER NOT NULL,
+                sig TEXT,
+                scanned_at INTEGER NOT NULL
+            );
+            PRAGMA synchronous = NORMAL;",
         )?;
         Ok(Self { conn, hits: 0 })
+    }
+
+    /// 开启批量写入事务（大幅提升多次 put 的性能）；扫描结束时调用 [`Self::end_batch`]
+    pub fn begin_batch(&mut self) -> rusqlite::Result<()> {
+        self.conn.execute_batch("BEGIN")
+    }
+
+    /// 结束批量写入事务
+    pub fn end_batch(&mut self) -> rusqlite::Result<()> {
+        self.conn.execute_batch("COMMIT")
+    }
+
+    /// 查询视频签名缓存；未命中或元数据变化返回 None
+    pub fn get_video_sig(&mut self, path: &str, size: u64, mtime: u64) -> rusqlite::Result<Option<Vec<u64>>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT sig FROM video_cache WHERE path=?1 AND size=?2 AND mtime=?3")?;
+        let mut rows = stmt.query(params![path, size as i64, mtime as i64])?;
+        if let Some(row) = rows.next()? {
+            let s: Option<String> = row.get(0)?;
+            let v = s.and_then(|x| crate::videos::sig_from_string(&x));
+            Ok(v)
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn put_video_sig(&mut self, path: &str, size: u64, mtime: u64, sig: &[u64]) -> rusqlite::Result<()> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        self.conn.execute(
+            "INSERT OR REPLACE INTO video_cache (path, size, mtime, sig, scanned_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![path, size as i64, mtime as i64, crate::videos::sig_to_string(sig), now],
+        )?;
+        Ok(())
     }
 
     /// 查询图片感知哈希缓存；未命中或元数据变化返回 None
@@ -128,10 +173,11 @@ impl HashCache {
     pub fn clear(&mut self) -> rusqlite::Result<u64> {
         let n1 = self.conn.execute("DELETE FROM scan_cache", [])?;
         let n2 = self.conn.execute("DELETE FROM image_cache", [])?;
-        Ok((n1 + n2) as u64)
+        let n3 = self.conn.execute("DELETE FROM video_cache", [])?;
+        Ok((n1 + n2 + n3) as u64)
     }
 
-    /// 统计缓存条目数（含图片哈希缓存）
+    /// 统计缓存条目数（含图片/视频哈希缓存）
     pub fn count(&self) -> rusqlite::Result<u64> {
         let n1: i64 = self
             .conn
@@ -139,7 +185,10 @@ impl HashCache {
         let n2: i64 = self
             .conn
             .query_row("SELECT COUNT(*) FROM image_cache", [], |r| r.get(0))?;
-        Ok((n1 + n2) as u64)
+        let n3: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM video_cache", [], |r| r.get(0))?;
+        Ok((n1 + n2 + n3) as u64)
     }
 }
 

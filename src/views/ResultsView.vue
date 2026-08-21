@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   applyAction,
+  removeEmptyDirs,
   formatBytes,
   formatDate,
   pickDirectory,
@@ -13,12 +14,14 @@ import {
   type ActionKind,
   type ActionItem,
   type GroupKind,
+  type ToolItem,
 } from '../api'
 
 const props = defineProps<{ result: ScanResult }>()
 const emit = defineEmits<{ (e: 'back'): void }>()
 
 const groups = ref<DuplicateGroup[]>(props.result.groups.map((g) => ({ ...g, files: g.files.map((f) => ({ ...f })) })))
+const tools = ref<ToolItem[]>(props.result.tools.map((t) => ({ ...t })))
 const activeNames = ref<string[]>(groups.value.map((_, i) => String(i)))
 const pending = ref(false)
 
@@ -29,7 +32,7 @@ const visibleGroups = computed(() =>
     .map((g, i) => ({ g, i }))
     .filter(({ g }) => kindFilter.value === 'all' || g.kind === kindFilter.value),
 )
-function kindInfo(k: GroupKind): { text: string; type: 'primary' | 'warning' | 'success' } {
+function kindInfo(k: GroupKind): { text: string; type: 'primary' | 'warning' | 'success' | 'info' | 'danger' } {
   switch (k) {
     case 'exact':
       return { text: '精确重复', type: 'primary' }
@@ -37,7 +40,29 @@ function kindInfo(k: GroupKind): { text: string; type: 'primary' | 'warning' | '
       return { text: '文件名模糊', type: 'warning' }
     case 'similar_image':
       return { text: '相似图片', type: 'success' }
+    case 'music_tag':
+      return { text: '音乐重复', type: 'info' }
+    case 'similar_video':
+      return { text: '相似视频', type: 'danger' }
   }
+}
+const TOOL_NAMES: Record<ToolItem['kind'], string> = {
+  empty_folder: '空文件夹',
+  big_file: '大文件',
+  temp_file: '临时文件',
+}
+
+// 清理工具的勾选与操作
+const checkedTools = ref<Set<string>>(new Set())
+const checkedToolCount = computed(() => checkedTools.value.size)
+function toggleTool(path: string, on: boolean) {
+  const set = new Set(checkedTools.value)
+  if (on) set.add(path)
+  else set.delete(path)
+  checkedTools.value = set
+}
+function toolItemsOfKind(kind: ToolItem['kind']): ToolItem[] {
+  return tools.value.filter((t) => t.kind === kind)
 }
 
 // 每个组内勾选的副本路径（默认除参考外全勾）
@@ -263,6 +288,82 @@ function rebuildAll() {
   activeNames.value = groups.value.map((_, i) => String(i))
 }
 
+// ---------- 清理工具操作 ----------
+async function deleteCheckedEmptyFolders() {
+  const paths = tools.value
+    .filter((t) => t.kind === 'empty_folder' && checkedTools.value.has(t.path))
+    .map((t) => t.path)
+  if (paths.length === 0) {
+    ElMessage.warning('请先勾选要删除的空文件夹')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(`将删除 ${paths.length} 个空文件夹（只删除空目录，不影响任何文件）。`, '删除空文件夹', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+    })
+  } catch {
+    return
+  }
+  pending.value = true
+  try {
+    const results = await removeEmptyDirs(paths)
+    const ok = results.filter((r) => r.ok)
+    const fail = results.filter((r) => !r.ok)
+    if (ok.length > 0) ElMessage.success(`已删除 ${ok.length} 个空文件夹`)
+    fail.forEach((r) => ElMessage.error(r.message))
+    const okSet = new Set(ok.map((r) => r.path))
+    tools.value = tools.value.filter((t) => !(t.kind === 'empty_folder' && okSet.has(t.path)))
+    checkedTools.value = new Set([...checkedTools.value].filter((p) => !okSet.has(p)))
+  } catch (e) {
+    ElMessage.error(`操作失败：${e}`)
+  } finally {
+    pending.value = false
+  }
+}
+
+async function toolFileAction(kind: ActionKind) {
+  const items = tools.value.filter(
+    (t) => (t.kind === 'big_file' || t.kind === 'temp_file') && checkedTools.value.has(t.path),
+  )
+  if (items.length === 0) {
+    ElMessage.warning('请先勾选要处理的大文件/临时文件')
+    return
+  }
+  if (kind === 'delete') {
+    try {
+      await ElMessageBox.confirm(`将永久删除 ${items.length} 个文件，此操作不可恢复！`, '永久删除确认', {
+        type: 'warning',
+        confirmButtonText: '永久删除',
+        cancelButtonText: '取消',
+        confirmButtonClass: 'el-button--danger',
+      })
+    } catch {
+      return
+    }
+  }
+  const reqItems: ActionItem[] = items.map((t) => ({
+    file: { path: t.path, size: t.size, modified: t.modified, created: t.created } as FileEntry,
+    reference: '',
+  }))
+  pending.value = true
+  try {
+    const results = await applyAction({ kind, items: reqItems, dest_dir: null })
+    const ok = results.filter((r) => r.ok)
+    const fail = results.filter((r) => !r.ok)
+    if (ok.length > 0) ElMessage.success(`${ok.length} 个文件处理成功`)
+    fail.forEach((r) => ElMessage.error(r.message))
+    const okSet = new Set(ok.map((r) => r.path))
+    tools.value = tools.value.filter((t) => !okSet.has(t.path))
+    checkedTools.value = new Set([...checkedTools.value].filter((p) => !okSet.has(p)))
+  } catch (e) {
+    ElMessage.error(`操作失败：${e}`)
+  } finally {
+    pending.value = false
+  }
+}
+
 // ---------- 组内交互 ----------
 function toggleAll(g: DuplicateGroup, i: number, on: boolean) {
   const set = new Set<string>()
@@ -320,7 +421,53 @@ async function doGroupAction(g: DuplicateGroup, i: number, kind: ActionKind) {
       </div>
     </el-card>
 
-    <el-empty v-if="groups.length === 0" description="没有重复文件了" />
+    <!-- 清理工具区 -->
+    <el-card v-if="tools.length > 0" shadow="never" class="toolbar-card">
+      <template #header>
+        <div class="card-header">
+          <span>🧹 清理工具（{{ tools.length }} 项，已勾选 <b class="hl">{{ checkedToolCount }}</b>）</span>
+          <div>
+            <el-button size="small" type="warning" plain :loading="pending" @click="deleteCheckedEmptyFolders">
+              删除勾选的空文件夹
+            </el-button>
+            <el-button size="small" type="danger" plain :loading="pending" @click="toolFileAction('trash')">
+              勾选文件移到回收站
+            </el-button>
+            <el-button size="small" type="danger" :loading="pending" @click="toolFileAction('delete')">
+              勾选文件永久删除
+            </el-button>
+          </div>
+        </div>
+      </template>
+      <el-table :data="tools" size="small" :row-key="(t: ToolItem) => t.path" border>
+        <el-table-column width="48" align="center">
+          <template #default="{ row }">
+            <el-checkbox :model-value="checkedTools.has(row.path) || false" @change="(v: boolean) => toggleTool(row.path, !!v)" />
+          </template>
+        </el-table-column>
+        <el-table-column label="类型" width="110">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.kind === 'empty_folder' ? 'warning' : row.kind === 'big_file' ? 'danger' : 'info'">
+              {{ TOOL_NAMES[row.kind as ToolItem['kind']] }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="路径" min-width="380">
+          <template #default="{ row }">
+            <span class="path-cell">{{ row.path }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="大小" width="110">
+          <template #default="{ row }">{{ row.size ? formatBytes(row.size) : '-' }}</template>
+        </el-table-column>
+        <el-table-column label="说明" min-width="160">
+          <template #default="{ row }">{{ row.detail }}</template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
+    <el-empty v-if="groups.length === 0 && tools.length === 0" description="没有发现重复文件或可清理项" />
+    <el-empty v-else-if="groups.length === 0" description="没有重复文件了（清理工具结果见上方）" :image-size="60" />
 
     <template v-else>
       <!-- 选择工具栏 -->
@@ -351,6 +498,8 @@ async function doGroupAction(g: DuplicateGroup, i: number, kind: ActionKind) {
           <el-option label="精确重复" value="exact" />
           <el-option label="文件名模糊" value="fuzzy_name" />
           <el-option label="相似图片" value="similar_image" />
+          <el-option label="音乐重复" value="music_tag" />
+          <el-option label="相似视频" value="similar_video" />
         </el-select>
         <el-button size="small" @click="activeNames = visibleGroups.map(({ i }) => String(i))">全部展开</el-button>
         <el-button size="small" @click="activeNames = []">全部折叠</el-button>
@@ -501,6 +650,13 @@ async function doGroupAction(g: DuplicateGroup, i: number, kind: ActionKind) {
 }
 .spacer {
   flex: 1;
+}
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 .toolbar-card {
   margin-bottom: 10px;

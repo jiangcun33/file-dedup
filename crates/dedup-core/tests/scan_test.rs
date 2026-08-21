@@ -309,3 +309,51 @@ fn similar_images_found() {
     let _ = f2;
     let _ = f3;
 }
+
+#[test]
+fn cleanup_tools_collected() {
+    let dir = test_dir("tools");
+    write(&dir, "big.bin", &vec![0u8; 20000]);
+    write(&dir, "small.bin", &vec![0u8; 10]);
+    write(&dir, "temp.tmp", b"tmp file");
+    write(&dir, "keep.txt", b"keep me");
+    std::fs::create_dir_all(dir.join("empty_dir")).unwrap();
+    std::fs::create_dir_all(dir.join("not_empty")).unwrap();
+    write(&dir, "not_empty/x.txt", b"x");
+
+    let cancel = AtomicBool::new(false);
+    let mut opts = base_options(vec![dir.to_string_lossy().into_owned()]);
+    opts.tool_empty_folders = true;
+    opts.tool_big_files = true;
+    opts.tool_big_files_count = 5;
+    opts.tool_temp_files = true;
+    opts.music_dedup = true; // 无音频文件，不应崩溃
+    opts.similar_videos = true; // 无视频文件，不应崩溃
+
+    let result = dedup_core::run_scan(&opts, None, Some(&cancel)).unwrap();
+    let kinds: Vec<_> = result.tools.iter().map(|t| t.kind).collect();
+    assert!(kinds.contains(&dedup_core::ToolKind::EmptyFolder), "应报告空文件夹");
+    assert!(kinds.contains(&dedup_core::ToolKind::BigFile), "应报告大文件");
+    assert!(kinds.contains(&dedup_core::ToolKind::TempFile), "应报告临时文件");
+    let empty = result.tools.iter().find(|t| t.kind == dedup_core::ToolKind::EmptyFolder).unwrap();
+    assert!(empty.path.ends_with("empty_dir"), "应为 empty_dir，实际 {}", empty.path);
+    let big = result.tools.iter().find(|t| t.kind == dedup_core::ToolKind::BigFile).unwrap();
+    assert!(big.path.ends_with("big.bin"), "最大文件应为 big.bin");
+    // 测试目录位于 %TEMP%，"临时目录"规则会命中全部文件；断言 temp.tmp 在其中即可
+    let temps: Vec<&str> = result
+        .tools
+        .iter()
+        .filter(|t| t.kind == dedup_core::ToolKind::TempFile)
+        .map(|t| t.path.as_str())
+        .collect();
+    assert!(temps.iter().any(|p| p.ends_with("temp.tmp")), "temp.tmp 应被识别为临时文件");
+    // 空文件夹删除操作
+    let req_paths = vec![empty.path.clone()];
+    let res = dedup_core::action::remove_empty_dirs(&req_paths);
+    assert!(res[0].ok, "空文件夹应删除成功: {}", res[0].message);
+    assert!(!std::path::Path::new(&empty.path).exists());
+    // 非空目录不应被删除
+    let req2 = vec![dir.join("not_empty").to_string_lossy().into_owned()];
+    let res2 = dedup_core::action::remove_empty_dirs(&req2);
+    assert!(!res2[0].ok, "非空目录应拒绝删除");
+}
