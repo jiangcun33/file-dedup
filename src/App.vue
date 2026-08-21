@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
+import { invoke } from '@tauri-apps/api/core'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import ScanView from './views/ScanView.vue'
 import ResultsView from './views/ResultsView.vue'
 import type { ScanResult } from './api'
@@ -7,6 +9,19 @@ import type { ScanResult } from './api'
 const view = ref<'scan' | 'results'>('scan')
 const result = ref<ScanResult | null>(null)
 const groupsCount = ref(0)
+const appVersion = ref('')
+
+onMounted(async () => {
+  try {
+    appVersion.value = await invoke<string>('app_version')
+    const full = `文件去重 v${appVersion.value}`
+    // 同时设置文档标题与原生窗口标题（避免 WebView2 标题同步覆盖）
+    document.title = full
+    await getCurrentWindow().setTitle(full)
+  } catch {
+    /* 非 Tauri 环境忽略 */
+  }
+})
 
 function onScanned(r: ScanResult) {
   result.value = r
@@ -19,7 +34,7 @@ function onScanned(r: ScanResult) {
   <div class="app-shell">
     <header class="app-header">
       <span class="logo">🗂️</span>
-      <span class="title">文件去重</span>
+      <span class="title">文件去重{{ appVersion ? ` v${appVersion}` : '' }}</span>
       <nav class="nav">
         <el-button :type="view === 'scan' ? 'primary' : ''" text @click="view = 'scan'">扫描</el-button>
         <el-button

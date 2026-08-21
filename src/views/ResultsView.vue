@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, reactive } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   applyAction,
@@ -92,6 +92,20 @@ function setChecked(i: number, set: Set<string>) {
   checked.value[i] = set
 }
 
+// 共享表格列宽：拖动任意一张表的列宽，所有表同步调整
+const colWidths = reactive<Record<string, number>>({
+  path: 380,
+  size: 110,
+  modified: 150,
+  created: 150,
+  detail: 200,
+})
+function onHeaderDragend(prop: string, newWidth: number) {
+  if (prop && newWidth > 30) {
+    colWidths[prop] = newWidth
+  }
+}
+
 // ---------- 全局选择（仅作用于当前筛选可见的分组；保留文件也可勾选） ----------
 function selectAllCopies() {
   visibleGroups.value.forEach(({ g, i }) => {
@@ -135,45 +149,42 @@ function isKeepDirCriterion(): boolean {
 }
 
 function applyKeepCriterion() {
-  // 目录类条件：所有符合保留条件的文件都设为保留（不勾选），其余勾选为待处理
-  if (isKeepDirCriterion()) {
-    let kept = 0
-    groups.value.forEach((g, i) => {
-      const set = new Set<string>()
-      g.files.forEach((f) => {
-        const matches =
-          keepCriterion.value === 'path_under_dir' ? isUnderDir(f.path, keepDir.value) : !isUnderDir(f.path, keepDir.value)
-        if (matches) kept++
-        else set.add(f.path)
-      })
-      // 至少保留一个文件（避免整组全部勾选导致无保留副本）
-      if (set.size === g.files.length && g.files.length > 0) {
-        set.delete(g.files[0].path)
+  // 应用规则：先清除所有勾选 → 符合条件的文件保留（不勾选），其余文件勾选为待处理；
+  // 若某组无符合条件的文件，则该组整组保留（全部不勾选）
+  let kept = 0
+  groups.value.forEach((g, i) => {
+    if (g.files.length === 0) {
+      setChecked(i, new Set())
+      return
+    }
+    // 找出符合条件的文件（目录类=所有匹配；其他=每组最优一个）
+    let matches: FileEntry[]
+    if (isKeepDirCriterion()) {
+      matches = g.files.filter((f) =>
+        keepCriterion.value === 'path_under_dir' ? isUnderDir(f.path, keepDir.value) : !isUnderDir(f.path, keepDir.value),
+      )
+    } else {
+      let best = 0
+      for (let idx = 1; idx < g.files.length; idx++) {
+        if (betterKeep(g.files[idx], g.files[best])) best = idx
       }
-      setChecked(i, set)
-    })
-    keepDialog.value = false
-    ElMessage.success(kept > 0 ? `已将 ${kept} 个符合条件的文件设为保留` : '没有文件符合保留条件')
-    return
-  }
-
-  // 单文件条件：每组重排，参考文件置顶
-  let changed = 0
-  groups.value.forEach((g) => {
-    if (g.files.length < 2) return
-    let target = 0
-    for (let idx = 1; idx < g.files.length; idx++) {
-      if (betterKeep(g.files[idx], g.files[target])) target = idx
+      matches = [g.files[best]]
     }
-    if (target !== 0) {
-      const f = g.files.splice(target, 1)[0]
-      g.files.unshift(f)
-      changed++
+    const set = new Set<string>()
+    if (matches.length === 0) {
+      // 无符合条件的文件 → 整组保留（全部不勾选）
+      kept += g.files.length
+    } else {
+      const matchPaths = new Set(matches.map((m) => m.path))
+      g.files.forEach((f) => {
+        if (!matchPaths.has(f.path)) set.add(f.path)
+      })
+      kept += matches.length
     }
+    setChecked(i, set)
   })
-  groups.value.forEach((g, i) => initChecks(g, i))
   keepDialog.value = false
-  ElMessage.success(changed > 0 ? `已按条件重排 ${changed} 组（每组第一个为保留文件）` : '各组的保留文件已是最优')
+  ElMessage.success(`已按条件设置保留：${kept} 个文件保留，其余勾选`)
 }
 function betterKeep(a: FileEntry, b: FileEntry): boolean {
   switch (keepCriterion.value) {
@@ -224,9 +235,9 @@ function matchesCriterion(f: FileEntry): boolean {
 }
 function applyBatchSelect() {
   let matched = 0
-  // 先清除全部勾选，再只勾选满足条件的文件（应用即替换，而非累加；保留文件也参与）
-  groups.value.forEach((_, i) => setChecked(i, new Set()))
-  visibleGroups.value.forEach(({ g, i }) => {
+  // 应用规则：先清除所有勾选 → 符合条件的文件勾选，其余文件保留（不勾选）；
+  // 若某组无符合条件的文件，则该组整组保留（全部不勾选）
+  groups.value.forEach((g, i) => {
     const set = new Set<string>()
     g.files.forEach((file) => {
       if (matchesCriterion(file)) {
@@ -237,7 +248,7 @@ function applyBatchSelect() {
     setChecked(i, set)
   })
   selectDialog.value = false
-  ElMessage.success(`已按条件勾选 ${matched} 个副本文件（替换了之前的勾选）`)
+  ElMessage.success(`已按条件勾选 ${matched} 个文件（替换了之前的勾选，其余保留）`)
 }
 function isTextCriterion(): boolean {
   return selCriterion.value === 'name_contains' || selCriterion.value === 'name_not_contains'
@@ -493,28 +504,34 @@ function isAllChecked(g: DuplicateGroup, i: number): boolean {
           </div>
         </div>
       </template>
-      <el-table :data="tools" size="small" :row-key="(t: ToolItem) => t.path" border>
-        <el-table-column width="48" align="center">
+      <el-table
+        :data="tools"
+        size="small"
+        :row-key="(t: ToolItem) => t.path"
+        border
+        @header-dragend="(newWidth: number, _oldWidth: number, column: any) => onHeaderDragend(column.property, newWidth)"
+      >
+        <el-table-column width="48" align="center" :resizable="false">
           <template #default="{ row }">
             <el-checkbox :model-value="checkedTools.has(row.path) || false" @change="(v: boolean) => toggleTool(row.path, !!v)" />
           </template>
         </el-table-column>
-        <el-table-column label="类型" width="110">
+        <el-table-column label="类型" prop="kind" width="110">
           <template #default="{ row }">
             <el-tag size="small" :type="row.kind === 'empty_folder' ? 'warning' : row.kind === 'big_file' ? 'danger' : 'info'">
               {{ TOOL_NAMES[row.kind as ToolItem['kind']] }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="路径" min-width="380">
+        <el-table-column label="路径" prop="path" :width="colWidths.path">
           <template #default="{ row }">
             <span class="path-cell">{{ row.path }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="大小" width="110">
+        <el-table-column label="大小" prop="size" :width="colWidths.size">
           <template #default="{ row }">{{ row.size ? formatBytes(row.size) : '-' }}</template>
         </el-table-column>
-        <el-table-column label="说明" min-width="160">
+        <el-table-column label="说明" prop="detail" :width="colWidths.detail">
           <template #default="{ row }">{{ row.detail }}</template>
         </el-table-column>
       </el-table>
@@ -579,8 +596,14 @@ function isAllChecked(g: DuplicateGroup, i: number): boolean {
           </template>
 
           <div class="group-body">
-            <el-table :data="g.files" size="small" :row-key="(f: FileEntry) => f.path" border>
-              <el-table-column width="48" align="center">
+            <el-table
+              :data="g.files"
+              size="small"
+              :row-key="(f: FileEntry) => f.path"
+              border
+              @header-dragend="(newWidth: number, _oldWidth: number, column: any) => onHeaderDragend(column.property, newWidth)"
+            >
+              <el-table-column width="48" align="center" :resizable="false">
                 <template #default="{ row }">
                   <el-checkbox
                     :model-value="checked[i]?.has(row.path) || false"
@@ -588,7 +611,7 @@ function isAllChecked(g: DuplicateGroup, i: number): boolean {
                   />
                 </template>
               </el-table-column>
-              <el-table-column label="文件路径" min-width="380">
+              <el-table-column label="文件路径" prop="path" :width="colWidths.path">
                 <template #default="{ row }">
                   <span class="path-cell">{{ row.path }}</span>
                   <!-- 未勾选的文件一律标记「保留」：勾选表示要处理（无标签），未勾选表示将保留 -->
@@ -600,13 +623,13 @@ function isAllChecked(g: DuplicateGroup, i: number): boolean {
                   >保留</el-tag>
                 </template>
               </el-table-column>
-              <el-table-column label="大小" width="110">
+              <el-table-column label="大小" prop="size" :width="colWidths.size">
                 <template #default="{ row }">{{ formatBytes(row.size) }}</template>
               </el-table-column>
-              <el-table-column label="修改时间" width="150">
+              <el-table-column label="修改时间" prop="modified" :width="colWidths.modified">
                 <template #default="{ row }">{{ formatDate(row.modified) }}</template>
               </el-table-column>
-              <el-table-column label="创建时间" width="150">
+              <el-table-column label="创建时间" prop="created" :width="colWidths.created">
                 <template #default="{ row }">{{ formatDate(row.created) }}</template>
               </el-table-column>
             </el-table>

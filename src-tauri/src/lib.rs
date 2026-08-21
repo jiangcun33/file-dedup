@@ -25,6 +25,13 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(ScanState::default())
+        .setup(|app| {
+            // 启动时把窗口标题设为「文件去重 + 版本号」（原生设置，不受前端权限限制）
+            if let Some(win) = app.get_webview_window("main") {
+                let _ = win.set_title(&format!("文件去重 v{}", env!("CARGO_PKG_VERSION")));
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             run_scan,
             cancel_scan,
@@ -32,7 +39,8 @@ pub fn run() {
             remove_empty_dirs,
             clear_cache,
             get_cache_stats,
-            default_cache_path
+            default_cache_path,
+            app_version
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

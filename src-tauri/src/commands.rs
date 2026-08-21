@@ -72,6 +72,12 @@ pub fn get_cache_stats(path: String) -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({ "entries": n }))
 }
 
+/// 应用版本号（来自 Cargo 包版本）
+#[tauri::command]
+pub fn app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
 /// 默认缓存文件路径（应用数据目录）
 #[tauri::command]
 pub fn default_cache_path(app: AppHandle) -> Result<String, String> {
