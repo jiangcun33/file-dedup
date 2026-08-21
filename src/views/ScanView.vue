@@ -159,14 +159,30 @@ async function stopScan() {
 
 <template>
   <div class="page scan-page">
-    <!-- 扫描目录 -->
-    <section class="fd-card">
-      <div class="fd-card-header">
-        <span class="fd-icon">&#xE8B7;</span>
-        <span>扫描目录</span>
-        <div class="spacer" />
-        <el-button class="fd-add-btn" @click="addPath">＋ 添加目录</el-button>
+    <!-- 固定顶部操作条：开始扫描按钮固定在右上角，页面滚动时不移动 -->
+    <div class="scan-topbar">
+      <template v-if="!scanState.scanning">
+        <el-button type="primary" @click="startScan">开始扫描</el-button>
+      </template>
+      <template v-else>
+        <el-button type="warning" @click="stopScan">取消扫描</el-button>
+      </template>
+      <div v-if="scanState.scanning" class="progress-wrap">
+        <el-progress :percentage="progressPct" :stroke-width="8" :show-text="false" />
+        <span class="progress-msg">{{ scanState.progressMsg }}</span>
       </div>
+    </div>
+
+    <!-- 可滚动内容区 -->
+    <div class="scan-content">
+      <!-- 扫描目录 -->
+      <section class="fd-card">
+        <div class="fd-card-header">
+          <span class="fd-icon">&#xE8B7;</span>
+          <span>扫描目录</span>
+          <div class="spacer" />
+          <el-button class="fd-add-btn" @click="addPath">＋ 添加目录</el-button>
+        </div>
       <el-empty v-if="paths.length === 0" description="尚未添加目录" :image-size="60" />
       <div v-else class="dir-list">
         <div v-for="(p, i) in paths" :key="p + i" class="dir-row">
@@ -313,25 +329,33 @@ async function stopScan() {
         </template>
       </el-form>
     </section>
-
-    <div class="action-bar">
-      <template v-if="!scanState.scanning">
-        <el-button type="primary" size="large" @click="startScan">开始扫描</el-button>
-      </template>
-      <template v-else>
-        <el-button type="warning" size="large" @click="stopScan">取消扫描</el-button>
-      </template>
-      <div v-if="scanState.scanning" class="progress-wrap">
-        <el-progress :percentage="progressPct" :stroke-width="10" :show-text="false" />
-        <div class="progress-msg">{{ scanState.progressMsg }}</div>
-      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
 .scan-page {
-  /* 自适应铺满：窗口缩放时卡片随宽度伸展 */
+  /* 固定顶栏 + 可滚动内容区 */
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  padding: 16px 20px 12px;
+}
+/* 顶部操作条：固定不滚动，按钮在右上角 */
+.scan-topbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+/* 内容区：占满剩余高度，独立滚动 */
+.scan-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 .spacer {
   flex: 1;
@@ -350,6 +374,23 @@ async function stopScan() {
   color: var(--fd-text-2);
   font-size: 12px;
   font-weight: 400;
+}
+.progress-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  max-width: 380px;
+}
+.progress-wrap .el-progress {
+  flex: 1;
+}
+.progress-msg {
+  color: var(--fd-text-2);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .dir-list {
   max-height: 180px;
@@ -382,21 +423,5 @@ async function stopScan() {
 .dir-remove:hover {
   color: var(--fd-accent);
   background: var(--fd-surface-2);
-}
-.action-bar {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  margin-top: 4px;
-  padding-bottom: 12px;
-}
-.progress-wrap {
-  flex: 1;
-  max-width: 420px;
-}
-.progress-msg {
-  margin-top: 4px;
-  color: var(--fd-text-2);
-  font-size: 12px;
 }
 </style>

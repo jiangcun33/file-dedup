@@ -612,8 +612,8 @@ function isAllChecked(g: DuplicateGroup, i: number): boolean {
 
 <template>
   <div class="page results-page">
-    <!-- 统计信息条 -->
-    <div class="fd-infobar">
+    <!-- 统计信息条（固定） -->
+    <div class="fd-infobar" style="flex: none">
       <span class="fd-info-item"><span class="fd-icon">&#xE8F1;</span>重复组 <b class="fd-num">{{ groups.length }}</b></span>
       <span class="fd-info-item fd-info-success"><span class="fd-icon">&#xEA18;</span>可释放 <b class="fd-num">{{ formatBytes(totalReclaimable) }}</b></span>
       <span class="fd-info-item"><span class="fd-icon">&#xE8C8;</span>副本文件 {{ totalDupFiles }}</span>
@@ -624,8 +624,8 @@ function isAllChecked(g: DuplicateGroup, i: number): boolean {
       <el-button @click="emit('back')">重新扫描</el-button>
     </div>
 
-    <!-- 清理工具区 -->
-    <section v-if="tools.length > 0" class="fd-card">
+    <!-- 清理工具区（固定，表格内部滚动） -->
+    <section v-if="tools.length > 0" class="fd-card" style="flex: none; padding-bottom: 12px">
       <div class="fd-card-header">
         <span class="fd-icon">&#xE74D;</span>
         <span>清理工具（{{ tools.length }} 项，已勾选 <b class="hl">{{ checkedToolCount }}</b>）</span>
@@ -637,6 +637,7 @@ function isAllChecked(g: DuplicateGroup, i: number): boolean {
       <el-table
         :data="tools"
         size="small"
+        :max-height="220"
         :row-key="(t: ToolItem) => t.path"
         @header-dragend="(newWidth: number, _oldWidth: number, column: any) => onHeaderDragend(column.property, newWidth)"
       >
@@ -652,12 +653,12 @@ function isAllChecked(g: DuplicateGroup, i: number): boolean {
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="路径" prop="path" :width="colWidths.path">
+        <el-table-column label="路径" prop="path" :min-width="colWidths.path">
           <template #default="{ row }">
             <span class="path-cell">{{ row.path }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="大小" prop="size" :width="colWidths.size" align="right">
+        <el-table-column label="大小" prop="size" :width="colWidths.size">
           <template #default="{ row }">{{ row.size ? formatBytes(row.size) : '-' }}</template>
         </el-table-column>
         <el-table-column label="说明" prop="detail" :width="colWidths.detail">
@@ -712,11 +713,11 @@ function isAllChecked(g: DuplicateGroup, i: number): boolean {
         <span class="tool-label">共 {{ flatRows.length }} 个文件</span>
       </div>
 
-      <el-empty v-if="visibleGroups.length === 0" description="当前筛选条件下没有分组" :image-size="60" />
-
-      <!-- 统一表格：所有重复文件平铺展示，组列合并显示，列宽可拖动全局同步 -->
-      <div class="group-body">
+      <!-- 表格区：独立滚动，宽度自适应铺满 -->
+      <div class="table-scroll">
+        <el-empty v-if="visibleGroups.length === 0" description="当前筛选条件下没有分组" :image-size="60" />
         <el-table
+          v-else
           :data="flatRows"
           size="small"
           :row-key="(r: any) => r.file.path"
@@ -748,7 +749,7 @@ function isAllChecked(g: DuplicateGroup, i: number): boolean {
               />
             </template>
           </el-table-column>
-          <el-table-column label="文件路径" prop="path" :width="colWidths.path">
+          <el-table-column label="文件路径" prop="path" :min-width="colWidths.path">
             <template #default="{ row }">
               <span class="path-cell">{{ row.file.path }}</span>
               <!-- 未勾选 → 蓝色「保留」；已勾选 → 红色「删除」 -->
@@ -756,16 +757,16 @@ function isAllChecked(g: DuplicateGroup, i: number): boolean {
               <span v-else class="fd-del-tag">删除</span>
             </template>
           </el-table-column>
-          <el-table-column label="大小" prop="size" :width="colWidths.size" align="right">
+          <el-table-column label="大小" prop="size" :width="colWidths.size">
             <template #default="{ row }">{{ formatBytes(row.file.size) }}</template>
           </el-table-column>
           <el-table-column label="类型" prop="type" :width="colWidths.type">
             <template #default="{ row }">{{ fileType(row.file.path) }}</template>
           </el-table-column>
-          <el-table-column label="修改时间" prop="modified" :width="colWidths.modified" align="right">
+          <el-table-column label="修改时间" prop="modified" :width="colWidths.modified">
             <template #default="{ row }">{{ formatDate(row.file.modified) }}</template>
           </el-table-column>
-          <el-table-column label="创建时间" prop="created" :width="colWidths.created" align="right">
+          <el-table-column label="创建时间" prop="created" :width="colWidths.created">
             <template #default="{ row }">{{ formatDate(row.file.created) }}</template>
           </el-table-column>
         </el-table>
@@ -859,17 +860,33 @@ function isAllChecked(g: DuplicateGroup, i: number): boolean {
 
 <style scoped>
 .results-page {
-  /* 自适应铺满：窗口缩放时卡片/表格随宽度伸展 */
+  /* 固定头部 + 表格区独立滚动，宽度自适应铺满 */
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  padding: 16px 20px 12px;
 }
 .spacer {
   flex: 1;
 }
-/* 操作工具栏：选择在左、核心操作居中、更多在右 */
+/* 表格区：占满剩余高度，独立滚动，宽度铺满 */
+.table-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--fd-surface);
+  border: 1px solid var(--fd-border);
+  border-radius: var(--fd-radius);
+}
+/* 操作工具栏：选择在左、核心操作居中、更多在右（固定不滚动） */
 .opbar {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 10px 16px;
+  margin-bottom: 10px;
+  flex: none;
 }
 .op-group {
   display: flex;
@@ -892,7 +909,8 @@ function isAllChecked(g: DuplicateGroup, i: number): boolean {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
+  flex: none;
 }
 .group-title {
   display: flex;
@@ -903,9 +921,6 @@ function isAllChecked(g: DuplicateGroup, i: number): boolean {
 }
 .gt-count {
   font-weight: 600;
-}
-.group-body {
-  padding: 4px 0 12px;
 }
 .grp-toggle {
   border: 1px solid var(--fd-border-strong);
